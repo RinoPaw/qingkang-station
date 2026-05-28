@@ -1,0 +1,15 @@
+qingkang_web/node_modules/
+qingkang_web/dist/
+qingkang_web/.vite/
+qingkang_web/*.log
+qingkang_web/acceptance-screenshot.png
+
+qingkang_server/.venv/
+qingkang_server/__pycache__/
+qingkang_server/tests/__pycache__/
+qingkang_server/*.log
+qingkang_server/data.db
+qingkang_server/uploads/
+
+.npm-cache/
+心迹_中美青年创客大赛软硬件结合完整方案.docx

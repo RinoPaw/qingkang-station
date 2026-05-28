@@ -1,0 +1,16 @@
+[project]
+name = "qingkang-server"
+version = "0.1.0"
+description = "FastAPI V0 server for QingKang Station"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "python-multipart",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+]

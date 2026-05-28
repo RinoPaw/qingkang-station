@@ -1,0 +1,319 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f7f8f2;
+  --ink: #17211d;
+  --muted: #64756d;
+  --line: #cddad1;
+  --mist: #edf4ee;
+  --jade: #0f766e;
+  --tea: #a56b3f;
+  --signal: #d94b61;
+  --blue: #285f8f;
+  font-family:
+    "IBM Plex Sans", "HarmonyOS Sans SC", "Noto Sans SC", "Microsoft YaHei",
+    sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+}
+
+.font-display {
+  font-family:
+    "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "Microsoft YaHei",
+    serif;
+}
+
+.terminal-grid {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(rgba(23, 33, 29, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 33, 29, 0.035) 1px, transparent 1px),
+    repeating-linear-gradient(135deg, rgba(15, 118, 110, 0.025) 0 1px, transparent 1px 9px);
+  background-size: 28px 28px, 28px 28px, auto;
+  mask-image: linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.72) 44%, transparent 100%);
+}
+
+.panel {
+  position: relative;
+  z-index: 1;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  padding: 18px;
+  box-shadow: 0 16px 40px rgba(23, 33, 29, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--jade);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.section-kicker {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.86);
+  padding: 12px 13px;
+  color: var(--ink);
+  outline: none;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.input:focus {
+  border-color: var(--jade);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.primary-btn,
+.secondary-btn,
+.ghost-btn {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  padding: 10px 13px;
+  font-size: 14px;
+  font-weight: 800;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.primary-btn {
+  background: var(--ink);
+  color: white;
+  box-shadow: 0 12px 24px rgba(23, 33, 29, 0.18);
+}
+
+.secondary-btn {
+  border-color: rgba(15, 118, 110, 0.28);
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--jade);
+}
+
+.ghost-btn {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--muted);
+}
+
+.primary-btn:not(:disabled):hover,
+.secondary-btn:not(:disabled):hover,
+.ghost-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(23, 33, 29, 0.12);
+}
+
+.primary-btn:disabled,
+.secondary-btn:disabled,
+.ghost-btn:disabled {
+  opacity: 0.55;
+}
+
+.measurement-console {
+  position: relative;
+  z-index: 1;
+  border: 1px solid color-mix(in srgb, var(--jade), var(--line) 70%);
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.9), rgba(237, 244, 238, 0.72)),
+    linear-gradient(90deg, rgba(15, 118, 110, 0.06), rgba(40, 95, 143, 0.07));
+  padding: 20px;
+  box-shadow: 0 20px 56px rgba(23, 33, 29, 0.12);
+}
+
+.heart-card {
+  min-height: 348px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(250, 251, 246, 0.68)),
+    repeating-linear-gradient(90deg, rgba(23, 33, 29, 0.04) 0 1px, transparent 1px 18px);
+  padding: 20px;
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.heart-card.is-measuring {
+  border-color: rgba(217, 75, 97, 0.45);
+  box-shadow: 0 0 0 4px rgba(217, 75, 97, 0.08), 0 24px 60px rgba(217, 75, 97, 0.13);
+}
+
+.pulse-line {
+  height: 36px;
+  width: 160%;
+  background:
+    linear-gradient(90deg, transparent 0 5%, var(--signal) 5% 6%, transparent 6% 12%),
+    linear-gradient(90deg, transparent 0 18%, var(--signal) 18% 19.5%, transparent 19.5% 27%),
+    linear-gradient(90deg, transparent 0 44%, var(--signal) 44% 45.5%, transparent 45.5% 53%),
+    linear-gradient(90deg, transparent 0 73%, var(--signal) 73% 74.5%, transparent 74.5% 84%),
+    linear-gradient(var(--signal), var(--signal));
+  background-position: 0 18px;
+  background-repeat: no-repeat;
+  background-size: 100% 2px;
+  clip-path: polygon(
+    0 55%,
+    7% 55%,
+    9% 12%,
+    12% 88%,
+    15% 55%,
+    24% 55%,
+    27% 22%,
+    30% 82%,
+    34% 55%,
+    46% 55%,
+    49% 18%,
+    52% 84%,
+    56% 55%,
+    75% 55%,
+    78% 26%,
+    80% 78%,
+    84% 55%,
+    100% 55%
+  );
+  animation: slidePulse 2.8s linear infinite;
+}
+
+.metric {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.62);
+  padding: 10px;
+}
+
+.metric span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.metric strong {
+  display: block;
+  min-height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.upload-zone {
+  display: block;
+  cursor: pointer;
+  border: 1px dashed color-mix(in srgb, var(--jade), var(--line) 58%);
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(165, 107, 63, 0.08)),
+    rgba(255, 255, 255, 0.55);
+  transition:
+    border-color 180ms ease,
+    transform 180ms ease;
+}
+
+.upload-zone:hover {
+  border-color: var(--jade);
+  transform: translateY(-1px);
+}
+
+.scan-overlay {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(15, 118, 110, 0.72);
+  background:
+    linear-gradient(transparent 0 48%, rgba(15, 118, 110, 0.28) 50%, transparent 52%),
+    linear-gradient(90deg, transparent 0 22%, rgba(15, 118, 110, 0.35) 22% 23%, transparent 23% 78%, rgba(15, 118, 110, 0.35) 78% 79%, transparent 79%);
+  animation: scan 2.6s ease-in-out infinite;
+}
+
+.observation-card {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(237, 244, 238, 0.86)),
+    repeating-linear-gradient(0deg, transparent 0 9px, rgba(165, 107, 63, 0.035) 9px 10px);
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.64);
+  padding: 12px;
+}
+
+.flow-node {
+  display: flex;
+  min-height: 54px;
+  flex-direction: column;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.62);
+  padding: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+@keyframes slidePulse {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-36%);
+  }
+}
+
+@keyframes scan {
+  0%,
+  100% {
+    background-position: 0 -80px, 0 0;
+  }
+  50% {
+    background-position: 0 80px, 0 0;
+  }
+}
