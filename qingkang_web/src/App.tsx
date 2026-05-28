@@ -2,21 +2,25 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import {
   Activity,
+  Bell,
   Cable,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   CloudUpload,
   Cpu,
   Database,
-  Gauge,
+  Eye,
   HeartPulse,
   History,
   Leaf,
   Loader2,
   LogIn,
+  Monitor,
   Radio,
   ScanLine,
   ShieldCheck,
+  Smartphone,
   UserRound,
   Waves,
   XCircle,
@@ -48,63 +52,18 @@ const STORAGE_USER = 'qingkang_user'
 const STORAGE_SESSION = 'qingkang_session_id'
 const STORAGE_NICKNAME = 'qingkang_nickname'
 
-const statusCopy: Record<string, { label: string; hint: string; tone: string }> = {
-  IDLE: {
-    label: 'IDLE',
-    hint: '设备空闲，请先加入测量队列',
-    tone: 'text-slate-500 bg-slate-100 border-slate-200',
-  },
-  QUEUED: {
-    label: 'QUEUED',
-    hint: '已排队，等待硬件释放',
-    tone: 'text-cyan-700 bg-cyan-50 border-cyan-200',
-  },
-  READY: {
-    label: 'READY',
-    hint: '轮到你了，请将手指轻放在传感器上',
-    tone: 'text-emerald-800 bg-emerald-50 border-emerald-200',
-  },
-  PLACE_FINGER: {
-    label: 'READY',
-    hint: '请将手指轻放在传感器上',
-    tone: 'text-emerald-800 bg-emerald-50 border-emerald-200',
-  },
-  HOLD_STILL: {
-    label: 'HOLD STILL',
-    hint: '正在稳定信号，请保持手指不动',
-    tone: 'text-teal-800 bg-teal-50 border-teal-200',
-  },
-  MEASURING: {
-    label: 'MEASURING',
-    hint: 'MEASURING / 请保持手指',
-    tone: 'text-rose-800 bg-rose-50 border-rose-200',
-  },
-  ADJUST_FINGER: {
-    label: 'ADJUST FINGER',
-    hint: '信号偏弱或偏强，请轻轻调整接触位置',
-    tone: 'text-amber-800 bg-amber-50 border-amber-200',
-  },
-  FINISHED: {
-    label: 'FINISHED',
-    hint: '本次测量完成，可生成综合观察卡',
-    tone: 'text-emerald-800 bg-emerald-50 border-emerald-200',
-  },
-  TIMEOUT: {
-    label: 'TIMEOUT',
-    hint: '本次测量超时，可以重新加入队列',
-    tone: 'text-orange-800 bg-orange-50 border-orange-200',
-  },
-  CANCELLED: {
-    label: 'CANCELLED',
-    hint: '本次测量已取消',
-    tone: 'text-slate-600 bg-slate-100 border-slate-200',
-  },
-  DISCONNECTED: {
-    label: 'DISCONNECTED',
-    hint: '硬件离线，请检查 ESP32-S3 网络连接',
-    tone: 'text-red-800 bg-red-50 border-red-200',
-  },
-}
+type ViewMode = 'student' | 'terminal'
+
+const flowSteps = [
+  { key: 'identity', label: '创建身份' },
+  { key: 'queue', label: '加入队列' },
+  { key: 'ready', label: '轮到你' },
+  { key: 'heart', label: '心率测量' },
+  { key: 'tongue', label: '上传舌象' },
+  { key: 'result', label: '观察卡' },
+]
+
+const finalStatuses = new Set(['FINISHED', 'TIMEOUT', 'CANCELLED'])
 
 function readStoredUser() {
   try {
@@ -124,9 +83,11 @@ function formatClock(ts?: number | null) {
 }
 
 function statusFromPayload(payload: SessionPayload | null, device: DevicePollResponse | null) {
+  const sessionStatus = payload?.session?.status
+  if (sessionStatus && finalStatuses.has(sessionStatus)) return sessionStatus
   if (payload?.heart?.state) return payload.heart.state
-  if (payload?.session?.status) return payload.session.status
-  if (device?.state) return device.state
+  if (sessionStatus) return sessionStatus
+  if (device?.state === 'DISCONNECTED') return 'DISCONNECTED'
   return 'IDLE'
 }
 
@@ -135,13 +96,13 @@ function cnStatus(status?: string | null) {
   const map: Record<string, string> = {
     IDLE: '设备空闲',
     QUEUED: '排队中',
-    READY: '轮到你',
+    READY: '轮到你了',
     PLACE_FINGER: '请放手指',
-    HOLD_STILL: '稳定信号',
-    MEASURING: '测量中',
-    ADJUST_FINGER: '调整手指',
-    FINISHED: '已完成',
-    TIMEOUT: '已超时',
+    HOLD_STILL: '稳定信号中',
+    MEASURING: '正在测量',
+    ADJUST_FINGER: '请调整手指',
+    FINISHED: '心率记录完成',
+    TIMEOUT: '测量超时',
     CANCELLED: '已取消',
     DISCONNECTED: '设备离线',
   }
@@ -152,7 +113,130 @@ function safeBpm(value?: number | null) {
   return value && value > 0 ? value : null
 }
 
+function isActiveSession(payload: SessionPayload | null) {
+  return payload?.session?.status === 'READY' || payload?.session?.status === 'MEASURING'
+}
+
+function isWaitingSession(payload: SessionPayload | null) {
+  return payload?.session?.status === 'QUEUED'
+}
+
+function isHeartFinished(payload: SessionPayload | null) {
+  return payload?.session?.status === 'FINISHED'
+}
+
+function getPeopleAhead(payload: SessionPayload | null) {
+  return payload?.queue?.people_ahead ?? 0
+}
+
+function getDeviceHumanState(device: DevicePollResponse | null, payload: SessionPayload | null) {
+  if (!device || device.state === 'DISCONNECTED') return '设备离线'
+  if (isActiveSession(payload)) return '正在为你服务'
+  if (device.active_session) return '正在服务他人'
+  return '设备空闲'
+}
+
+function getMainPrompt(
+  status: string,
+  payload: SessionPayload | null,
+  user: User | null,
+  device: DevicePollResponse | null,
+) {
+  const peopleAhead = getPeopleAhead(payload)
+  const deviceBusy = Boolean(device?.active_session && !payload?.queue?.is_active)
+
+  if (!user) {
+    return {
+      title: '先创建你的身份',
+      description: '输入昵称或学号后，就可以加入测量队列。',
+      action: '请先创建身份',
+      tone: 'calm',
+    }
+  }
+
+  if (!payload?.session) {
+    return {
+      title: deviceBusy ? '设备正在服务他人' : '设备空闲，可以排队',
+      description: deviceBusy ? '你可以先加入队列，轮到你时页面会提示。' : '加入队列后，系统会为你分配本次测量。',
+      action: '加入测量队列',
+      tone: deviceBusy ? 'waiting' : 'ready',
+    }
+  }
+
+  const map: Record<string, { title: string; description: string; action: string; tone: string }> = {
+    IDLE: {
+      title: '设备空闲，请加入测量队列',
+      description: '创建身份后点击加入队列，硬件空闲时会自动轮到你。',
+      action: '加入测量队列',
+      tone: 'calm',
+    },
+    QUEUED: {
+      title: `排队中，前面还有 ${peopleAhead} 位`,
+      description: '请在小站附近等待，轮到你时再把手指放上传感器。',
+      action: peopleAhead > 0 ? '请稍等' : '即将轮到你',
+      tone: 'waiting',
+    },
+    READY: {
+      title: '轮到你了',
+      description: '请将手指轻放在心率传感器上，不要用力按压。',
+      action: '现在可以放置手指',
+      tone: 'ready',
+    },
+    PLACE_FINGER: {
+      title: '轮到你了',
+      description: '请将手指轻放在心率传感器上。',
+      action: '现在可以放置手指',
+      tone: 'ready',
+    },
+    HOLD_STILL: {
+      title: '正在稳定信号',
+      description: '请保持手指不动，等待心率信号稳定。',
+      action: '请保持手指',
+      tone: 'measuring',
+    },
+    MEASURING: {
+      title: '正在测量',
+      description: '正在测量，请保持手指，不要移开。',
+      action: '请保持手指',
+      tone: 'measuring',
+    },
+    ADJUST_FINGER: {
+      title: '信号不稳定',
+      description: '请轻轻调整手指位置，让传感器能稳定读取。',
+      action: '轻轻调整手指',
+      tone: 'warning',
+    },
+    FINISHED: {
+      title: '心率记录完成',
+      description: '现在可以上传舌象图片，生成本次综合观察卡。',
+      action: '上传舌象图片',
+      tone: 'done',
+    },
+    TIMEOUT: {
+      title: '本次测量超时',
+      description: '可以重新加入队列，再完成一次心率记录。',
+      action: '重新加入队列',
+      tone: 'warning',
+    },
+    CANCELLED: {
+      title: '本次测量已取消',
+      description: '需要继续测量时，可以重新加入队列。',
+      action: '重新加入队列',
+      tone: 'calm',
+    },
+    DISCONNECTED: {
+      title: '设备离线',
+      description: '请等待工作人员检查小站设备连接。',
+      action: '暂时无法测量',
+      tone: 'danger',
+    },
+  }
+
+  return map[status] || map.IDLE
+}
+
 function App() {
+  const [viewMode, setViewMode] = useState<ViewMode>('student')
   const [nickname, setNickname] = useState(localStorage.getItem(STORAGE_NICKNAME) || '')
   const [user, setUser] = useState<User | null>(() => readStoredUser())
   const [sessionId, setSessionId] = useState(localStorage.getItem(STORAGE_SESSION) || '')
@@ -224,7 +308,7 @@ function App() {
         const payload = await fetchSession(sessionId)
         if (!cancelled) setSessionPayload(payload)
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : '无法读取当前 session')
+        if (!cancelled) setError(err instanceof Error ? err.message : '无法读取当前记录')
       }
     }
     loop()
@@ -243,14 +327,15 @@ function App() {
   }, [refreshHistory, sessionPayload?.session?.status, sessionPayload?.heart?.created_at])
 
   const currentStatus = statusFromPayload(sessionPayload, devicePoll)
-  const copy = statusCopy[currentStatus] || statusCopy.IDLE
+  const mainPrompt = getMainPrompt(currentStatus, sessionPayload, user, devicePoll)
   const activeSession = sessionPayload?.session
   const bpm = safeBpm(sessionPayload?.heart?.bpm)
   const secondsLeft = activeSession?.expires_at ? Math.max(activeSession.expires_at - now, 0) : null
-  const canUseSession =
-    activeSession?.status === 'READY' ||
-    activeSession?.status === 'MEASURING' ||
-    activeSession?.status === 'FINISHED'
+  const heartFinished = isHeartFinished(sessionPayload)
+  const canUploadTongue = Boolean(user && sessionId && heartFinished)
+  const peopleAhead = getPeopleAhead(sessionPayload)
+  const deviceHumanState = getDeviceHumanState(devicePoll, sessionPayload)
+  const queueLocked = isWaitingSession(sessionPayload) || isActiveSession(sessionPayload)
 
   const chartData = useMemo(() => {
     const data = history
@@ -293,7 +378,7 @@ function App() {
 
   async function handleJoinQueue() {
     if (!user) {
-      setError('请先输入昵称或学号')
+      setError('请先创建身份')
       return
     }
     setBusy('queue')
@@ -304,7 +389,7 @@ function App() {
       setSessionPayload(payload)
       setSessionId(payload.session_id)
       localStorage.setItem(STORAGE_SESSION, payload.session_id)
-      setNotice(payload.queue?.is_active ? '轮到你了，请看硬件提示' : '已加入测量队列')
+      setNotice(payload.queue?.is_active ? '轮到你了，请按照提示开始测量' : '已加入测量队列')
       await refreshHistory(user)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加入队列失败')
@@ -320,7 +405,7 @@ function App() {
     try {
       const payload = await finishSession(sessionId)
       setSessionPayload(payload)
-      setNotice('本次测量已结束，设备会自动释放给下一位')
+      setNotice('心率记录完成，可以上传舌象图片')
       await refreshHistory()
     } catch (err) {
       setError(err instanceof Error ? err.message : '结束测量失败')
@@ -336,7 +421,7 @@ function App() {
     try {
       const payload = await cancelSession(sessionId)
       setSessionPayload(payload)
-      setNotice('已取消当前测量')
+      setNotice('已取消本次排队或测量')
       await refreshHistory()
     } catch (err) {
       setError(err instanceof Error ? err.message : '取消失败')
@@ -355,7 +440,7 @@ function App() {
     try {
       const payload = await uploadTongueImage(sessionId, user.user_id, file)
       setSessionPayload(payload)
-      setNotice('舌象图片已记录，AI 视觉模块占位结果已生成')
+      setNotice('舌象图片已记录，可以查看综合观察卡')
       await refreshSession(sessionId)
       await refreshHistory(user)
     } catch (err) {
@@ -365,491 +450,671 @@ function App() {
     }
   }
 
+  function scrollToObservation() {
+    document.getElementById('observation-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
-    <main className="min-h-screen bg-[var(--paper)] text-[var(--ink)]">
-      <div className="terminal-grid"></div>
-      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-4 rounded-none border-b border-[var(--line)] pb-4 lg:flex-row lg:items-end lg:justify-between">
+    <main className="student-shell">
+      <div className="soft-grid"></div>
+      <div className="station-wrap">
+        <header className="student-header">
           <div>
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-              <span>QingKang Station</span>
-              <span className="h-1 w-1 rounded-full bg-[var(--tea)]"></span>
-              <span>ESP32-S3 + AI Vision</span>
-            </div>
-            <h1 className="font-display text-4xl font-semibold leading-tight text-[var(--ink)] sm:text-5xl lg:text-6xl">
-              青康小站
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)] sm:text-base">
-              面向校园场景的轻健康状态观察终端：排队占用硬件、绑定 session_id、记录心率与舌象图片，并形成非诊断性综合观察卡。
-            </p>
+            <p className="eyebrow">QingKang Station</p>
+            <h1 className="brand-title">青康小站</h1>
+            <p className="brand-subtitle">校园轻健康状态观察小站</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusPill icon={<Radio size={16} />} label={DEVICE_ID} value={cnStatus(devicePoll?.state)} />
-            <StatusPill icon={<Database size={16} />} label="API" value={API_BASE.replace(/^https?:\/\//, '')} />
+          <div className="header-actions">
+            <span className={`device-pill ${deviceHumanState === '设备离线' ? 'is-offline' : ''}`}>
+              <Radio size={16} />
+              {deviceHumanState}
+            </span>
+            <div className="mode-switch" aria-label="页面视角">
+              <button
+                className={viewMode === 'student' ? 'is-active' : ''}
+                onClick={() => setViewMode('student')}
+                type="button"
+              >
+                <Smartphone size={16} />
+                用户测量端
+              </button>
+              <button
+                className={viewMode === 'terminal' ? 'is-active' : ''}
+                onClick={() => setViewMode('terminal')}
+                type="button"
+              >
+                <Monitor size={16} />
+                小站屏幕
+              </button>
+            </div>
           </div>
         </header>
 
         {(error || notice) && (
-          <section
-            className={`flex items-start gap-3 border px-4 py-3 text-sm ${
-              error
-                ? 'border-red-200 bg-red-50 text-red-800'
-                : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-            }`}
-          >
+          <section className={`message-strip ${error ? 'is-error' : 'is-success'}`}>
             {error ? <XCircle size={18} /> : <CheckCircle2 size={18} />}
             <span>{error || notice}</span>
           </section>
         )}
 
-        <section className="grid gap-4 lg:grid-cols-[320px_minmax(0,1.35fr)_minmax(360px,0.95fr)]">
-          <aside className="flex flex-col gap-4">
-            <IdentityPanel
-              nickname={nickname}
-              setNickname={setNickname}
-              user={user}
-              busy={busy}
-              onLogin={handleLogin}
-              onJoinQueue={handleJoinQueue}
-            />
-            <QueuePanel
-              payload={sessionPayload}
-              device={devicePoll}
-              secondsLeft={secondsLeft}
-              busy={busy}
-              onFinish={handleFinish}
-              onCancel={handleCancel}
-            />
-          </aside>
+        {viewMode === 'student' ? (
+          <StudentMeasurementView
+            bpm={bpm}
+            busy={busy}
+            canUploadTongue={canUploadTongue}
+            currentStatus={currentStatus}
+            heartFinished={heartFinished}
+            history={history}
+            mainPrompt={mainPrompt}
+            nickname={nickname}
+            peopleAhead={peopleAhead}
+            previewUrl={previewUrl}
+            queueLocked={queueLocked}
+            secondsLeft={secondsLeft}
+            sessionPayload={sessionPayload}
+            setNickname={setNickname}
+            user={user}
+            chartData={chartData}
+            onCancel={handleCancel}
+            onFinish={handleFinish}
+            onJoinQueue={handleJoinQueue}
+            onLogin={handleLogin}
+            onScrollToObservation={scrollToObservation}
+            onTongueUpload={handleTongueUpload}
+          />
+        ) : (
+          <TerminalDisplayView
+            currentStatus={currentStatus}
+            deviceHumanState={deviceHumanState}
+            payload={sessionPayload}
+            prompt={mainPrompt}
+            secondsLeft={secondsLeft}
+          />
+        )}
 
-          <section className="measurement-console">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="section-kicker">当前测量状态</p>
-                <h2 className="mt-2 text-2xl font-semibold text-[var(--ink)] sm:text-3xl">{copy.label}</h2>
-                <p className="mt-2 text-sm text-[var(--muted)]">{copy.hint}</p>
-              </div>
-              <span className={`inline-flex items-center gap-2 border px-3 py-2 text-xs font-semibold ${copy.tone}`}>
-                <span className="h-2 w-2 rounded-full bg-current"></span>
-                {cnStatus(currentStatus)}
-              </span>
-            </div>
+        <RoadshowDebugPanel device={devicePoll} payload={sessionPayload} />
 
-            <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px]">
-              <HeartRateCard bpm={bpm} status={currentStatus} secondsLeft={secondsLeft} />
-              <SensorPanel payload={sessionPayload} device={devicePoll} />
-            </div>
-
-            <DataFlowStrip />
-          </section>
-
-          <section className="flex flex-col gap-4">
-            <TongueUploadPanel
-              canUseSession={Boolean(canUseSession && user)}
-              busy={busy}
-              payload={sessionPayload}
-              previewUrl={previewUrl}
-              onUpload={handleTongueUpload}
-            />
-            <ObservationCard payload={sessionPayload} />
-          </section>
-        </section>
-
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_390px]">
-          <HistoryPanel history={history} chartData={chartData} />
-          <SystemPanel device={devicePoll} payload={sessionPayload} />
-        </section>
-
-        <footer className="border-t border-[var(--line)] py-4 text-xs leading-5 text-[var(--muted)]">
-          本系统仅用于健康状态观察和科普记录，不作为医学诊断依据。测量过程中请以 MEASURING / 请保持手指为准，等待 FINISHED 后再移开手指。
+        <footer className="site-footer">
+          本系统仅用于健康状态观察和科普记录，不作为医学诊断依据。
         </footer>
       </div>
     </main>
   )
 }
 
-function StatusPill({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function StudentMeasurementView({
+  bpm,
+  busy,
+  canUploadTongue,
+  chartData,
+  currentStatus,
+  heartFinished,
+  history,
+  mainPrompt,
+  nickname,
+  peopleAhead,
+  previewUrl,
+  queueLocked,
+  secondsLeft,
+  sessionPayload,
+  setNickname,
+  user,
+  onCancel,
+  onFinish,
+  onJoinQueue,
+  onLogin,
+  onScrollToObservation,
+  onTongueUpload,
+}: {
+  bpm: number | null
+  busy: string
+  canUploadTongue: boolean
+  chartData: Array<{ name: string; bpm: number; time: string }>
+  currentStatus: string
+  heartFinished: boolean
+  history: HistoryResponse['items']
+  mainPrompt: { title: string; description: string; action: string; tone: string }
+  nickname: string
+  peopleAhead: number
+  previewUrl: string
+  queueLocked: boolean
+  secondsLeft: number | null
+  sessionPayload: SessionPayload | null
+  setNickname: (value: string) => void
+  user: User | null
+  onCancel: () => void
+  onFinish: () => void
+  onJoinQueue: () => void
+  onLogin: (event: FormEvent) => void
+  onScrollToObservation: () => void
+  onTongueUpload: (file?: File) => void
+}) {
   return (
-    <div className="inline-flex items-center gap-2 border border-[var(--line)] bg-white/75 px-3 py-2 text-xs text-[var(--muted)] shadow-sm">
-      <span className="text-[var(--jade)]">{icon}</span>
-      <span>{label}</span>
-      <span className="font-semibold text-[var(--ink)]">{value}</span>
-    </div>
+    <>
+      <section className="first-screen">
+        <IdentityQueueCard
+          busy={busy}
+          nickname={nickname}
+          peopleAhead={peopleAhead}
+          queueLocked={queueLocked}
+          sessionPayload={sessionPayload}
+          setNickname={setNickname}
+          user={user}
+          onCancel={onCancel}
+          onJoinQueue={onJoinQueue}
+          onLogin={onLogin}
+        />
+        <CurrentStepCard
+          currentStatus={currentStatus}
+          mainPrompt={mainPrompt}
+          sessionPayload={sessionPayload}
+          user={user}
+        />
+      </section>
+
+      <StepGuide currentStatus={currentStatus} payload={sessionPayload} user={user} />
+
+      <section className="main-flow">
+        <HeartMeasureCard
+          bpm={bpm}
+          busy={busy}
+          currentStatus={currentStatus}
+          heartFinished={heartFinished}
+          prompt={mainPrompt}
+          secondsLeft={secondsLeft}
+          sessionPayload={sessionPayload}
+          onFinish={onFinish}
+          onScrollToObservation={onScrollToObservation}
+        />
+        <TongueUploadCard
+          busy={busy}
+          canUploadTongue={canUploadTongue}
+          payload={sessionPayload}
+          previewUrl={previewUrl}
+          onTongueUpload={onTongueUpload}
+        />
+      </section>
+
+      <ObservationCard payload={sessionPayload} />
+      <HistorySection chartData={chartData} history={history} />
+    </>
   )
 }
 
-function IdentityPanel({
+function IdentityQueueCard({
+  busy,
   nickname,
+  peopleAhead,
+  queueLocked,
+  sessionPayload,
   setNickname,
   user,
-  busy,
-  onLogin,
+  onCancel,
   onJoinQueue,
+  onLogin,
 }: {
+  busy: string
   nickname: string
+  peopleAhead: number
+  queueLocked: boolean
+  sessionPayload: SessionPayload | null
   setNickname: (value: string) => void
   user: User | null
-  busy: string
-  onLogin: (event: FormEvent) => void
+  onCancel: () => void
   onJoinQueue: () => void
+  onLogin: (event: FormEvent) => void
 }) {
+  const waiting = isWaitingSession(sessionPayload)
+  const active = isActiveSession(sessionPayload)
+
   return (
-    <section className="panel">
-      <div className="panel-title">
-        <UserRound size={18} />
-        <span>身份与队列</span>
+    <section className="student-card identity-card">
+      <div className="card-heading">
+        <UserRound size={20} />
+        <span>身份与排队</span>
       </div>
-      <form className="mt-4 flex flex-col gap-3" onSubmit={onLogin}>
-        <label className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">昵称 / 学号</label>
-        <input
-          value={nickname}
-          onChange={(event) => setNickname(event.target.value)}
-          placeholder="例如 Rino"
-          className="input"
-        />
-        <button className="primary-btn" disabled={busy === 'login' || !nickname.trim()}>
-          {busy === 'login' ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
-          创建身份
-        </button>
-      </form>
-      <div className="mt-4 border-t border-[var(--line)] pt-4">
-        <div className="mb-3 text-sm text-[var(--muted)]">
-          {user ? (
-            <>
-              当前用户 <span className="font-semibold text-[var(--ink)]">{user.nickname}</span>
-              <br />
-              <span className="font-mono text-xs">{user.user_id}</span>
-            </>
-          ) : (
-            '创建身份后才能占用公共心率硬件。'
-          )}
+      <form className="identity-form" onSubmit={onLogin}>
+        <label htmlFor="nickname">昵称或学号</label>
+        <div className="identity-row">
+          <input
+            id="nickname"
+            value={nickname}
+            onChange={(event) => setNickname(event.target.value)}
+            placeholder="例如 Rino / 20240101"
+            className="input"
+          />
+          <button className="primary-btn" disabled={busy === 'login' || !nickname.trim()} type="submit">
+            {busy === 'login' ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
+            创建身份
+          </button>
         </div>
-        <button className="secondary-btn w-full" disabled={!user || busy === 'queue'} onClick={onJoinQueue}>
+      </form>
+
+      <div className="queue-summary">
+        <div>
+          <span>当前身份</span>
+          <strong>{user ? user.nickname : '未创建'}</strong>
+        </div>
+        <div>
+          <span>排队状态</span>
+          <strong>{waiting ? '排队中' : active ? '轮到你了' : '未排队'}</strong>
+        </div>
+        <div className="wide">
+          <span>你前面还有</span>
+          <strong>{waiting ? `${peopleAhead} 人` : active ? '0 人' : '--'}</strong>
+        </div>
+      </div>
+
+      <div className="action-row">
+        <button className="secondary-btn" disabled={!user || queueLocked || busy === 'queue'} onClick={onJoinQueue}>
           {busy === 'queue' ? <Loader2 className="animate-spin" size={18} /> : <Clock3 size={18} />}
           加入测量队列
         </button>
+        <button className="ghost-btn" disabled={!sessionPayload?.session || busy === 'cancel'} onClick={onCancel}>
+          {busy === 'cancel' ? <Loader2 className="animate-spin" size={18} /> : <XCircle size={18} />}
+          取消排队
+        </button>
+      </div>
+      {!user && <p className="helper-text">请先创建身份，排队和上传功能会自动解锁。</p>}
+    </section>
+  )
+}
+
+function CurrentStepCard({
+  currentStatus,
+  mainPrompt,
+  sessionPayload,
+  user,
+}: {
+  currentStatus: string
+  mainPrompt: { title: string; description: string; action: string; tone: string }
+  sessionPayload: SessionPayload | null
+  user: User | null
+}) {
+  return (
+    <section className={`student-card current-card tone-${mainPrompt.tone}`}>
+      <p className="section-kicker">当前该做什么</p>
+      <h2>{mainPrompt.title}</h2>
+      <p>{mainPrompt.description}</p>
+      <div className="next-action">
+        <Bell size={18} />
+        <span>{mainPrompt.action}</span>
+      </div>
+      <div className="quick-facts">
+        <span>{user ? '身份已创建' : '未创建身份'}</span>
+        <span>{sessionPayload?.session ? cnStatus(currentStatus) : '未加入队列'}</span>
       </div>
     </section>
   )
 }
 
-function QueuePanel({
+function StepGuide({
+  currentStatus,
   payload,
-  device,
-  secondsLeft,
-  busy,
-  onFinish,
-  onCancel,
+  user,
 }: {
+  currentStatus: string
   payload: SessionPayload | null
-  device: DevicePollResponse | null
-  secondsLeft: number | null
-  busy: string
-  onFinish: () => void
-  onCancel: () => void
+  user: User | null
 }) {
-  const session = payload?.session
-  const active = session?.status === 'READY' || session?.status === 'MEASURING'
-  const queued = session?.status === 'QUEUED'
+  const status = payload?.session?.status
+  const tongueDone = Boolean(payload?.tongue)
+
+  function stepState(key: string) {
+    if (key === 'identity') return user ? 'done' : 'active'
+    if (key === 'queue') {
+      if (!user) return 'locked'
+      if (payload?.session) return 'done'
+      return 'active'
+    }
+    if (key === 'ready') {
+      if (status === 'QUEUED') return 'active'
+      if (status === 'READY' || status === 'MEASURING' || status === 'FINISHED') return 'done'
+      return payload?.session ? 'done' : 'locked'
+    }
+    if (key === 'heart') {
+      if (currentStatus === 'HOLD_STILL' || currentStatus === 'MEASURING' || currentStatus === 'ADJUST_FINGER') {
+        return 'active'
+      }
+      if (status === 'FINISHED') return 'done'
+      return status === 'READY' ? 'active' : 'locked'
+    }
+    if (key === 'tongue') {
+      if (tongueDone) return 'done'
+      if (status === 'FINISHED') return 'active'
+      return 'locked'
+    }
+    if (key === 'result') return tongueDone ? 'done' : status === 'FINISHED' ? 'active' : 'locked'
+    return 'locked'
+  }
 
   return (
-    <section className="panel">
-      <div className="panel-title">
-        <Cable size={18} />
-        <span>硬件占用</span>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <Metric label="队列位置" value={queued ? `第 ${payload?.queue?.position || 1} 位` : active ? '当前用户' : '--'} />
-        <Metric label="前方人数" value={queued ? `${payload?.queue?.people_ahead || 0} 人` : active ? '0 人' : '--'} />
-        <Metric label="倒计时" value={secondsLeft !== null ? `${secondsLeft}s` : '--'} />
-        <Metric label="设备状态" value={cnStatus(device?.state)} />
-      </div>
-      <div className="mt-4 rounded-none border border-dashed border-[var(--line)] bg-[var(--mist)] p-3 text-xs leading-5 text-[var(--muted)]">
-        {device?.active_session ? (
-          <>
-            OLED 应显示当前会话：
-            <br />
-            <span className="font-mono text-[var(--ink)]">{device.active_session.session_id}</span>
-          </>
-        ) : (
-          '无 active_session 时，ESP32 保持 Waiting / Idle，不上传心率数据。'
-        )}
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button className="secondary-btn" disabled={!active || busy === 'finish'} onClick={onFinish}>
-          {busy === 'finish' ? <Loader2 className="animate-spin" size={17} /> : <CheckCircle2 size={17} />}
-          结束
-        </button>
-        <button className="ghost-btn" disabled={!session || busy === 'cancel'} onClick={onCancel}>
-          {busy === 'cancel' ? <Loader2 className="animate-spin" size={17} /> : <XCircle size={17} />}
-          取消
-        </button>
-      </div>
+    <section className="stepper-card" aria-label="测量流程">
+      {flowSteps.map((step, index) => {
+        const state = stepState(step.key)
+        return (
+          <div className={`step-item is-${state}`} key={step.key}>
+            <span className="step-marker">{state === 'done' ? <CheckCircle2 size={18} /> : index + 1}</span>
+            <span>{step.label}</span>
+          </div>
+        )
+      })}
     </section>
   )
 }
 
-function HeartRateCard({
+function HeartMeasureCard({
   bpm,
-  status,
+  busy,
+  currentStatus,
+  heartFinished,
+  prompt,
   secondsLeft,
+  sessionPayload,
+  onFinish,
+  onScrollToObservation,
 }: {
   bpm: number | null
-  status: string
+  busy: string
+  currentStatus: string
+  heartFinished: boolean
+  prompt: { title: string; description: string; action: string; tone: string }
   secondsLeft: number | null
+  sessionPayload: SessionPayload | null
+  onFinish: () => void
+  onScrollToObservation: () => void
 }) {
-  const measuring = status === 'MEASURING'
+  const measuring = currentStatus === 'MEASURING'
+  const active = isActiveSession(sessionPayload)
+
   return (
-    <section className={`heart-card ${measuring ? 'is-measuring' : ''}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-semibold text-[var(--muted)]">
-          <HeartPulse size={18} />
-          心率实时卡片
+    <section className={`heart-student-card tone-${prompt.tone}`}>
+      <div className="card-heading">
+        <HeartPulse size={20} />
+        <span>心率测量</span>
+      </div>
+      <div className="heart-focus">
+        <div className={`heart-orb ${measuring ? 'is-live' : ''}`}>
+          <strong>{bpm || '--'}</strong>
+          <span>BPM</span>
         </div>
-        <span className="font-mono text-xs text-[var(--muted)]">{cnStatus(status)}</span>
+        <div className="heart-instruction">
+          <span>{cnStatus(currentStatus)}</span>
+          <h3>{measuring && bpm ? '正在测量，请保持手指' : prompt.title}</h3>
+          <p>{measuring && bpm ? '已经读到心率数据，但请继续保持手指，等待记录完成。' : prompt.description}</p>
+          <div className="pulse-band">
+            <div className="pulse-line"></div>
+          </div>
+        </div>
       </div>
-      <div className="mt-7 flex items-end gap-3">
-        <strong className="font-mono text-7xl leading-none tracking-normal text-[var(--ink)] sm:text-8xl">
-          {bpm || '--'}
-        </strong>
-        <span className="mb-3 text-lg font-semibold text-[var(--muted)]">BPM</span>
-      </div>
-      <div className="mt-7 h-16 overflow-hidden border-y border-[var(--line)] py-3">
-        <div className="pulse-line"></div>
-      </div>
-      <div className="mt-5 grid grid-cols-3 gap-3">
-        <Metric label="状态" value={status === 'MEASURING' ? '请保持手指' : cnStatus(status)} />
-        <Metric label="剩余" value={secondsLeft !== null ? `${secondsLeft}s` : '--'} />
-        <Metric label="提示" value={status === 'MEASURING' ? '连续记录中' : '等待稳定'} />
-      </div>
-    </section>
-  )
-}
-
-function SensorPanel({ payload, device }: { payload: SessionPayload | null; device: DevicePollResponse | null }) {
-  return (
-    <section className="panel h-full">
-      <div className="panel-title">
-        <Cpu size={18} />
-        <span>传感器状态</span>
-      </div>
-      <div className="mt-5 flex flex-col gap-3">
-        <SignalRow label="硬件轮询" value={device?.ok ? '在线' : '未连接'} active={device?.ok} />
-        <SignalRow label="当前会话" value={payload?.session_id || '--'} active={Boolean(payload?.session_id)} />
-        <SignalRow label="上传权限" value={payload?.queue?.is_active ? '已分配' : '等待'} active={payload?.queue?.is_active} />
-        <SignalRow label="心率状态" value={cnStatus(payload?.heart?.state)} active={payload?.heart?.state === 'MEASURING'} />
+      <div className="measure-actions">
+        <div>
+          <span>剩余时间</span>
+          <strong>{secondsLeft !== null ? `${secondsLeft} 秒` : '--'}</strong>
+        </div>
+        <button className="secondary-btn" disabled={!active || busy === 'finish'} onClick={onFinish}>
+          {busy === 'finish' ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
+          结束测量
+        </button>
+        <button className="ghost-btn" disabled={!heartFinished} onClick={onScrollToObservation}>
+          <Eye size={18} />
+          查看观察卡
+        </button>
       </div>
     </section>
   )
 }
 
-function SignalRow({ label, value, active }: { label: string; value: string; active?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] pb-3 text-sm last:border-0">
-      <span className="text-[var(--muted)]">{label}</span>
-      <span className="flex min-w-0 items-center gap-2 font-semibold text-[var(--ink)]">
-        <span className={`h-2 w-2 shrink-0 rounded-full ${active ? 'bg-[var(--jade)]' : 'bg-slate-300'}`}></span>
-        <span className="truncate">{value}</span>
-      </span>
-    </div>
-  )
-}
-
-function TongueUploadPanel({
-  canUseSession,
+function TongueUploadCard({
   busy,
+  canUploadTongue,
   payload,
   previewUrl,
-  onUpload,
+  onTongueUpload,
 }: {
-  canUseSession: boolean
   busy: string
+  canUploadTongue: boolean
   payload: SessionPayload | null
   previewUrl: string
-  onUpload: (file?: File) => void
+  onTongueUpload: (file?: File) => void
 }) {
   const imageUrl = previewUrl || (payload?.tongue?.image_path ? `${API_BASE}/${payload.tongue.image_path}` : '')
+
   return (
-    <section className="panel">
-      <div className="panel-title">
-        <CloudUpload size={18} />
-        <span>舌象上传区</span>
+    <section className={`student-card tongue-card ${canUploadTongue ? 'is-ready' : ''}`}>
+      <div className="card-heading">
+        <CloudUpload size={20} />
+        <span>舌象上传</span>
       </div>
-      <label className={`upload-zone mt-4 ${!canUseSession ? 'opacity-60' : ''}`}>
+      <p className="card-intro">
+        {canUploadTongue ? '心率记录完成后，可以上传一张舌象图片。' : '完成心率记录后可上传。'}
+      </p>
+      <label className={`upload-zone ${!canUploadTongue ? 'is-disabled' : ''}`} htmlFor="tongue-file">
         <input
+          id="tongue-file"
           type="file"
           accept="image/*"
-          disabled={!canUseSession || busy === 'tongue'}
-          className="hidden"
-          onChange={(event) => onUpload(event.target.files?.[0])}
+          disabled={!canUploadTongue || busy === 'tongue'}
+          onChange={(event) => onTongueUpload(event.target.files?.[0])}
         />
         {imageUrl ? (
-          <div className="relative h-52 w-full overflow-hidden bg-slate-100">
-            <img src={imageUrl} alt="舌象预览" className="h-full w-full object-cover" />
+          <div className="image-preview">
+            <img src={imageUrl} alt="舌象预览" />
             <div className="scan-overlay"></div>
           </div>
         ) : (
-          <div className="flex h-52 flex-col items-center justify-center gap-3 text-center">
-            {busy === 'tongue' ? <Loader2 className="animate-spin text-[var(--jade)]" /> : <ScanLine className="text-[var(--jade)]" />}
-            <div>
-              <p className="font-semibold text-[var(--ink)]">上传舌象图片</p>
-              <p className="mt-1 text-xs text-[var(--muted)]">用于同一 session 下的非诊断性观察记录</p>
-            </div>
+          <div className="upload-empty">
+            {busy === 'tongue' ? <Loader2 className="animate-spin" size={28} /> : <ScanLine size={30} />}
+            <strong>上传舌象图片</strong>
+            <span>舌象图片质量检查 / 舌体区域识别占位</span>
           </div>
         )}
       </label>
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        <Metric label="图片状态" value={payload?.tongue ? '已记录' : '待上传'} />
-        <Metric label="图像质量" value={payload?.tongue?.quality || '待分析'} />
-        <Metric label="AI 模块" value={payload?.tongue ? '占位完成' : '待接入'} />
+      <div className="plain-facts">
+        <span>{payload?.tongue ? '图片已记录' : '图片待上传'}</span>
+        <span>{payload?.tongue ? '质量检查占位已生成' : '等待心率完成'}</span>
       </div>
     </section>
   )
 }
 
 function ObservationCard({ payload }: { payload: SessionPayload | null }) {
-  const observation = payload?.combined_observation
-  const suggestions = observation?.suggestions || [
-    '完成心率测量后，可与舌象图片绑定成同一次观察记录。',
-    '等待队列时，请留意硬件 OLED 上显示的 session 信息。',
-  ]
+  const heart = payload?.heart
+  const tongue = payload?.tongue
+  const heartText = heart?.bpm
+    ? `本次记录到 ${heart.bpm} BPM，可作为学习生活状态观察参考。`
+    : payload?.session?.status === 'FINISHED'
+      ? '心率记录已完成，暂无稳定 BPM 数值。'
+      : '完成心率测量后，这里会显示心率记录摘要。'
+  const tongueText = tongue
+    ? '舌象图片已保存，后续可接入图片质量检查和舌体区域识别。'
+    : '上传舌象图片后，这里会显示图片记录摘要。'
 
   return (
-    <section className="panel observation-card">
-      <div className="panel-title">
-        <Leaf size={18} />
-        <span>综合观察卡片</span>
+    <section className="observation-card" id="observation-card">
+      <div className="card-heading">
+        <Leaf size={20} />
+        <span>综合观察卡</span>
       </div>
-      <p className="mt-4 text-lg font-semibold leading-7 text-[var(--ink)]">
-        {observation?.summary || '等待本次 session 数据生成综合观察。'}
-      </p>
-      <div className="mt-4 flex flex-col gap-3">
-        {suggestions.slice(0, 4).map((item) => (
-          <div className="flex gap-3 text-sm leading-6 text-[var(--muted)]" key={item}>
-            <ShieldCheck className="mt-1 shrink-0 text-[var(--jade)]" size={16} />
-            <span>{item}</span>
-          </div>
-        ))}
+      <div className="observation-grid">
+        <ObservationItem title="心率记录摘要" text={heartText} />
+        <ObservationItem title="舌象图片记录摘要" text={tongueText} />
+        <ObservationItem title="茶息建议" text="可以短暂停下，补充温水，观察身体状态变化。" />
+        <ObservationItem title="呼吸放松建议" text="尝试 30 秒慢呼吸，让本次记录更稳定。" />
+        <ObservationItem title="记录建议" text="建议保留本次记录，用于后续趋势对比。" />
       </div>
-      <div className="mt-4 border-t border-[var(--line)] pt-3 text-xs leading-5 text-[var(--muted)]">
-        {observation?.disclaimer || '本系统仅用于健康状态观察和科普记录，不作为医学诊断依据。'}
+      <div className="disclaimer">
+        <ShieldCheck size={18} />
+        本系统仅用于健康状态观察和科普记录，不作为医学诊断依据。
       </div>
     </section>
   )
 }
 
-function HistoryPanel({
-  history,
+function ObservationItem({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="observation-item">
+      <span>{title}</span>
+      <p>{text}</p>
+    </div>
+  )
+}
+
+function HistorySection({
   chartData,
+  history,
 }: {
-  history: HistoryResponse['items']
   chartData: Array<{ name: string; bpm: number; time: string }>
+  history: HistoryResponse['items']
 }) {
   return (
-    <section className="panel">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <div className="panel-title">
-            <History size={18} />
-            <span>历史记录 / 趋势</span>
-          </div>
-          <p className="mt-2 text-sm text-[var(--muted)]">展示最近几次 session 的心率记录和测量状态。</p>
-        </div>
-        <div className="flex gap-2 text-xs text-[var(--muted)]">
-          <span className="border border-[var(--line)] bg-white/70 px-3 py-2">非诊断性趋势</span>
-          <span className="border border-[var(--line)] bg-white/70 px-3 py-2">session 绑定</span>
-        </div>
-      </div>
-      <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="h-64 min-w-0 border border-[var(--line)] bg-white/60 p-3">
+    <details className="history-details">
+      <summary>
+        <span>
+          <History size={18} />
+          最近记录与趋势
+        </span>
+        <ChevronDown size={18} />
+      </summary>
+      <div className="history-content">
+        <div className="chart-box">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ left: -20, right: 12, top: 10, bottom: 0 }}>
               <defs>
                 <linearGradient id="bpmFill" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#0f9f8f" stopOpacity={0.28} />
-                  <stop offset="100%" stopColor="#0f9f8f" stopOpacity={0.03} />
+                  <stop offset="0%" stopColor="#169b8f" stopOpacity={0.24} />
+                  <stop offset="100%" stopColor="#169b8f" stopOpacity={0.03} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#d6ded7" strokeDasharray="3 6" />
+              <CartesianGrid stroke="#d7e3dc" strokeDasharray="3 6" />
               <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#64756d' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#64756d' }} axisLine={false} tickLine={false} domain={[40, 130]} />
-              <Tooltip contentStyle={{ borderRadius: 0, borderColor: '#c7d6ce' }} />
+              <Tooltip contentStyle={{ borderRadius: 12, borderColor: '#c7d6ce' }} />
               <Area type="monotone" dataKey="bpm" stroke="#0f766e" strokeWidth={2} fill="url(#bpmFill)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
-        <div className="flex max-h-64 flex-col gap-2 overflow-auto pr-1">
+        <div className="record-list">
           {history.length ? (
-            history.map((item) => (
-              <div className="history-row" key={item.session_id}>
+            history.slice(0, 6).map((item) => (
+              <div className="record-row" key={item.session_id}>
                 <div>
-                  <p className="font-semibold text-[var(--ink)]">{cnStatus(item.session?.status)}</p>
-                  <p className="font-mono text-xs text-[var(--muted)]">{item.session_id}</p>
+                  <strong>{cnStatus(item.session?.status)}</strong>
+                  <span>{formatClock(item.session?.created_at)}</span>
                 </div>
-                <div className="text-right">
-                  <p className="font-mono text-lg font-semibold text-[var(--ink)]">{item.heart?.bpm || '--'}</p>
-                  <p className="text-xs text-[var(--muted)]">{formatClock(item.session?.created_at)}</p>
-                </div>
+                <p>{item.heart?.bpm ? `${item.heart.bpm} BPM` : '暂无心率'}</p>
               </div>
             ))
           ) : (
-            <div className="flex h-full items-center justify-center border border-dashed border-[var(--line)] p-6 text-center text-sm text-[var(--muted)]">
-              暂无历史记录，完成一次测量后会显示在这里。
-            </div>
+            <p className="empty-records">完成一次测量后会显示最近记录。</p>
           )}
         </div>
       </div>
-    </section>
+    </details>
   )
 }
 
-function SystemPanel({ device, payload }: { device: DevicePollResponse | null; payload: SessionPayload | null }) {
+function TerminalDisplayView({
+  currentStatus,
+  deviceHumanState,
+  payload,
+  prompt,
+  secondsLeft,
+}: {
+  currentStatus: string
+  deviceHumanState: string
+  payload: SessionPayload | null
+  prompt: { title: string; description: string; action: string; tone: string }
+  secondsLeft: number | null
+}) {
+  const serving = isActiveSession(payload)
+  const offline = deviceHumanState === '设备离线'
+  const nickname = serving ? payload?.session?.nickname : ''
+  const title = serving ? prompt.title : offline ? '设备离线' : '等待下一位同学'
+  const description = serving
+    ? currentStatus === 'MEASURING'
+      ? '正在测量，请保持手指，不要移开'
+      : prompt.description
+    : offline
+      ? '请等待工作人员检查小站设备连接。'
+      : '请在网页上创建身份并加入测量队列。'
   return (
-    <section className="panel">
-      <div className="panel-title">
-        <Gauge size={18} />
-        <span>路演数据链路</span>
+    <section className={`terminal-display tone-${prompt.tone}`}>
+      <div className="terminal-top">
+        <span>青康小站公共屏幕</span>
+        <strong>{deviceHumanState}</strong>
       </div>
-      <div className="mt-5 flex flex-col gap-3">
-        <SystemLine icon={<Cpu size={16} />} label="ESP32-S3" value={device?.state || 'IDLE'} />
-        <SystemLine icon={<Activity size={16} />} label="PulseSensor" value={payload?.heart?.state || '等待上传'} />
-        <SystemLine icon={<CloudUpload size={16} />} label="舌象图片" value={payload?.tongue ? '已绑定' : '待上传'} />
-        <SystemLine icon={<Database size={16} />} label="session_id" value={payload?.session_id || '--'} />
-        <SystemLine icon={<Waves size={16} />} label="观察卡" value={payload?.combined_observation?.summary || '等待数据'} />
+      <div className="terminal-center">
+        <p>{nickname ? `当前服务：${nickname}` : '等待下一位同学'}</p>
+        <h2>{title}</h2>
+        <span>{description}</span>
       </div>
-    </section>
-  )
-}
-
-function SystemLine({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-3 border border-[var(--line)] bg-white/65 p-3 text-sm">
-      <span className="text-[var(--jade)]">{icon}</span>
-      <span className="w-24 shrink-0 font-semibold text-[var(--ink)]">{label}</span>
-      <span className="min-w-0 truncate text-[var(--muted)]">{value}</span>
-    </div>
-  )
-}
-
-function DataFlowStrip() {
-  const nodes = ['ESP32-S3', 'active_session', 'heart-rate', 'tongue-image', 'observation']
-  return (
-    <div className="mt-6 grid gap-2 sm:grid-cols-5">
-      {nodes.map((node, index) => (
-        <div className="flow-node" key={node}>
-          <span className="font-mono text-[10px] text-[var(--muted)]">0{index + 1}</span>
-          <span>{node}</span>
+      <div className="terminal-bottom">
+        <div>
+          <Clock3 size={22} />
+          {secondsLeft !== null ? `剩余 ${secondsLeft} 秒` : '等待分配'}
         </div>
-      ))}
-    </div>
+        <div>
+          <HeartPulse size={22} />
+          {serving ? cnStatus(currentStatus) : deviceHumanState}
+        </div>
+      </div>
+    </section>
   )
 }
 
-function Metric({ label, value }: { label: string; value: string | number | null | undefined }) {
+function RoadshowDebugPanel({
+  device,
+  payload,
+}: {
+  device: DevicePollResponse | null
+  payload: SessionPayload | null
+}) {
+  const flowNodes = [
+    ['ESP32-S3', device?.state || 'IDLE'],
+    ['active_session', device?.active_session?.session_id || '--'],
+    ['session_id', payload?.session_id || '--'],
+    ['heart-rate', payload?.heart?.state || 'waiting'],
+    ['tongue-image', payload?.tongue ? 'uploaded' : 'waiting'],
+    ['observation', payload?.combined_observation?.summary || 'waiting'],
+  ]
+
   return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value ?? '--'}</strong>
+    <details className="debug-details">
+      <summary>
+        <span>
+          <Cable size={18} />
+          路演调试模式 / 技术链路
+        </span>
+        <ChevronDown size={18} />
+      </summary>
+      <div className="debug-grid">
+        <DebugLine icon={<Cpu size={18} />} label="ESP32-S3" value={DEVICE_ID} />
+        <DebugLine icon={<Database size={18} />} label="API 状态" value={API_BASE} />
+        <DebugLine icon={<Activity size={18} />} label="active_session" value={device?.active_session?.session_id || '--'} />
+        <DebugLine icon={<Waves size={18} />} label="本次记录编号" value={payload?.session_id || '--'} />
+      </div>
+      <div className="tech-flow">
+        {flowNodes.map(([label, value], index) => (
+          <div className="tech-node" key={label}>
+            <span>{String(index + 1).padStart(2, '0')}</span>
+            <strong>{label}</strong>
+            <p>{value}</p>
+          </div>
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function DebugLine({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="debug-line">
+      <span>{icon}</span>
+      <div>
+        <strong>{label}</strong>
+        <p>{value}</p>
+      </div>
     </div>
   )
 }
