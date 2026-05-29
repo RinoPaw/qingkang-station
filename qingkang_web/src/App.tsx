@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import {
   Activity,
-  Bell,
   Cable,
   CheckCircle2,
   ChevronDown,
@@ -10,10 +9,8 @@ import {
   CloudUpload,
   Cpu,
   Database,
-  Eye,
   HeartPulse,
   History,
-  Leaf,
   Loader2,
   LogIn,
   Monitor,
@@ -53,6 +50,7 @@ const STORAGE_SESSION = 'qingkang_session_id'
 const STORAGE_NICKNAME = 'qingkang_nickname'
 
 type ViewMode = 'student' | 'terminal'
+type StageKey = 'identity' | 'queue' | 'waiting' | 'ready' | 'measuring' | 'tongue' | 'observation'
 
 const flowSteps = [
   { key: 'identity', label: '创建身份' },
@@ -92,7 +90,7 @@ function statusFromPayload(payload: SessionPayload | null, device: DevicePollRes
 }
 
 function cnStatus(status?: string | null) {
-  if (!status) return '未开始'
+  if (!status) return '待记录'
   const map: Record<string, string> = {
     IDLE: '设备空闲',
     QUEUED: '排队中',
@@ -117,23 +115,42 @@ function isActiveSession(payload: SessionPayload | null) {
   return payload?.session?.status === 'READY' || payload?.session?.status === 'MEASURING'
 }
 
-function isWaitingSession(payload: SessionPayload | null) {
-  return payload?.session?.status === 'QUEUED'
-}
-
-function isHeartFinished(payload: SessionPayload | null) {
-  return payload?.session?.status === 'FINISHED'
-}
-
 function getPeopleAhead(payload: SessionPayload | null) {
   return payload?.queue?.people_ahead ?? 0
 }
 
 function getDeviceHumanState(device: DevicePollResponse | null, payload: SessionPayload | null) {
   if (!device || device.state === 'DISCONNECTED') return '设备离线'
-  if (isActiveSession(payload)) return '正在为你服务'
-  if (device.active_session) return '正在服务他人'
+  if (isActiveSession(payload)) return '设备已分配给你'
+  if (device.active_session) return '正在服务其他同学'
   return '设备空闲'
+}
+
+function getStage(user: User | null, payload: SessionPayload | null, currentStatus: string): StageKey {
+  const status = payload?.session?.status
+  if (!user) return 'identity'
+  if (payload?.tongue) return 'observation'
+  if (status === 'FINISHED') return 'tongue'
+  if (!payload?.session || status === 'TIMEOUT' || status === 'CANCELLED') return 'queue'
+  if (status === 'QUEUED') return 'waiting'
+  if (currentStatus === 'HOLD_STILL' || currentStatus === 'MEASURING' || currentStatus === 'ADJUST_FINGER') {
+    return 'measuring'
+  }
+  if (status === 'READY' || currentStatus === 'READY' || currentStatus === 'PLACE_FINGER') return 'ready'
+  return 'queue'
+}
+
+function progressKeyForStage(stage: StageKey) {
+  const map: Record<StageKey, string> = {
+    identity: 'identity',
+    queue: 'queue',
+    waiting: 'queue',
+    ready: 'ready',
+    measuring: 'heart',
+    tongue: 'tongue',
+    observation: 'result',
+  }
+  return map[stage]
 }
 
 function getMainPrompt(
@@ -145,19 +162,28 @@ function getMainPrompt(
   const peopleAhead = getPeopleAhead(payload)
   const deviceBusy = Boolean(device?.active_session && !payload?.queue?.is_active)
 
+  if (payload?.tongue) {
+    return {
+      title: '观察卡已生成',
+      description: '可以查看本次心率与舌象记录合并后的非诊断性观察建议。',
+      action: '查看综合观察卡',
+      tone: 'done',
+    }
+  }
+
   if (!user) {
     return {
-      title: '先创建你的身份',
-      description: '输入昵称或学号后，就可以加入测量队列。',
-      action: '请先创建身份',
+      title: '第一步：创建身份',
+      description: '先用一个昵称绑定本次记录，之后页面会按队列引导测量。',
+      action: '输入昵称并创建身份',
       tone: 'calm',
     }
   }
 
   if (!payload?.session) {
     return {
-      title: deviceBusy ? '设备正在服务他人' : '设备空闲，可以排队',
-      description: deviceBusy ? '你可以先加入队列，轮到你时页面会提示。' : '加入队列后，系统会为你分配本次测量。',
+      title: '第二步：加入测量队列',
+      description: deviceBusy ? '前面有同学正在测量，你可以先加入队列。' : '加入队列后，系统会为你分配本次心率记录。',
       action: '加入测量队列',
       tone: deviceBusy ? 'waiting' : 'ready',
     }
@@ -165,37 +191,37 @@ function getMainPrompt(
 
   const map: Record<string, { title: string; description: string; action: string; tone: string }> = {
     IDLE: {
-      title: '设备空闲，请加入测量队列',
-      description: '创建身份后点击加入队列，硬件空闲时会自动轮到你。',
+      title: '第二步：加入测量队列',
+      description: '点击加入队列，轮到你时页面会自动提示。',
       action: '加入测量队列',
       tone: 'calm',
     },
     QUEUED: {
-      title: `排队中，前面还有 ${peopleAhead} 位`,
+      title: `你前面还有 ${peopleAhead} 位`,
       description: '请在小站附近等待，轮到你时再把手指放上传感器。',
-      action: peopleAhead > 0 ? '请稍等' : '即将轮到你',
+      action: peopleAhead > 0 ? '等待轮到你' : '即将轮到你',
       tone: 'waiting',
     },
     READY: {
-      title: '轮到你了',
-      description: '请将手指轻放在心率传感器上，不要用力按压。',
-      action: '现在可以放置手指',
+      title: '轮到你了，请将手指轻放在传感器上',
+      description: '轻放即可，不要用力按压，等待页面进入测量状态。',
+      action: '请轻放手指',
       tone: 'ready',
     },
     PLACE_FINGER: {
-      title: '轮到你了',
-      description: '请将手指轻放在心率传感器上。',
-      action: '现在可以放置手指',
+      title: '轮到你了，请将手指轻放在传感器上',
+      description: '轻放即可，不要用力按压，等待页面进入测量状态。',
+      action: '请轻放手指',
       tone: 'ready',
     },
     HOLD_STILL: {
-      title: '正在稳定信号',
-      description: '请保持手指不动，等待心率信号稳定。',
+      title: '正在测量，请保持手指',
+      description: '传感器正在稳定读取，请不要移开手指。',
       action: '请保持手指',
       tone: 'measuring',
     },
     MEASURING: {
-      title: '正在测量',
+      title: '正在测量，请保持手指',
       description: '正在测量，请保持手指，不要移开。',
       action: '请保持手指',
       tone: 'measuring',
@@ -207,21 +233,21 @@ function getMainPrompt(
       tone: 'warning',
     },
     FINISHED: {
-      title: '心率记录完成',
-      description: '现在可以上传舌象图片，生成本次综合观察卡。',
+      title: '下一步：上传舌象图片',
+      description: '心率记录已完成，上传一张舌象图片后生成综合观察卡。',
       action: '上传舌象图片',
       tone: 'done',
     },
     TIMEOUT: {
-      title: '本次测量超时',
-      description: '可以重新加入队列，再完成一次心率记录。',
-      action: '重新加入队列',
+      title: '重新加入测量队列',
+      description: '本次测量已超时，可以重新排队完成一次心率记录。',
+      action: '加入测量队列',
       tone: 'warning',
     },
     CANCELLED: {
-      title: '本次测量已取消',
-      description: '需要继续测量时，可以重新加入队列。',
-      action: '重新加入队列',
+      title: '重新加入测量队列',
+      description: '本次记录已取消，需要继续测量时可以重新排队。',
+      action: '加入测量队列',
       tone: 'calm',
     },
     DISCONNECTED: {
@@ -331,11 +357,9 @@ function App() {
   const activeSession = sessionPayload?.session
   const bpm = safeBpm(sessionPayload?.heart?.bpm)
   const secondsLeft = activeSession?.expires_at ? Math.max(activeSession.expires_at - now, 0) : null
-  const heartFinished = isHeartFinished(sessionPayload)
-  const canUploadTongue = Boolean(user && sessionId && heartFinished)
+  const stage = getStage(user, sessionPayload, currentStatus)
   const peopleAhead = getPeopleAhead(sessionPayload)
   const deviceHumanState = getDeviceHumanState(devicePoll, sessionPayload)
-  const queueLocked = isWaitingSession(sessionPayload) || isActiveSession(sessionPayload)
 
   const chartData = useMemo(() => {
     const data = history
@@ -356,21 +380,26 @@ function App() {
     ]
   }, [history])
 
-  async function handleLogin(event: FormEvent) {
+  async function handleStart(event: FormEvent) {
     event.preventDefault()
-    setBusy('login')
+    if (!nickname.trim()) return
+    setBusy('start')
     setError('')
     setNotice('')
     try {
-      const response = await loginUser(nickname)
+      const response = await loginUser(nickname.trim())
       setUser(response.user)
       localStorage.setItem(STORAGE_USER, JSON.stringify(response.user))
       localStorage.setItem(STORAGE_NICKNAME, response.user.nickname)
       setNickname(response.user.nickname)
-      setNotice('身份已创建，可以加入测量队列')
+      const payload = await joinQueue(response.user)
+      setSessionPayload(payload)
+      setSessionId(payload.session_id)
+      localStorage.setItem(STORAGE_SESSION, payload.session_id)
+      setNotice(payload.queue?.is_active ? '轮到你了，请按照提示开始测量' : '已加入测量队列')
       await refreshHistory(response.user)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '登录失败')
+      setError(err instanceof Error ? err.message : '开始失败，请稍后再试')
     } finally {
       setBusy('')
     }
@@ -378,7 +407,7 @@ function App() {
 
   async function handleJoinQueue() {
     if (!user) {
-      setError('请先创建身份')
+      setError('请先完成身份创建')
       return
     }
     setBusy('queue')
@@ -450,10 +479,6 @@ function App() {
     }
   }
 
-  function scrollToObservation() {
-    document.getElementById('observation-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
   return (
     <main className="student-shell">
       <div className="soft-grid"></div>
@@ -501,25 +526,22 @@ function App() {
           <StudentMeasurementView
             bpm={bpm}
             busy={busy}
-            canUploadTongue={canUploadTongue}
+            chartData={chartData}
             currentStatus={currentStatus}
-            heartFinished={heartFinished}
+            deviceHumanState={deviceHumanState}
             history={history}
-            mainPrompt={mainPrompt}
             nickname={nickname}
             peopleAhead={peopleAhead}
             previewUrl={previewUrl}
-            queueLocked={queueLocked}
             secondsLeft={secondsLeft}
             sessionPayload={sessionPayload}
             setNickname={setNickname}
+            stage={stage}
             user={user}
-            chartData={chartData}
             onCancel={handleCancel}
             onFinish={handleFinish}
             onJoinQueue={handleJoinQueue}
-            onLogin={handleLogin}
-            onScrollToObservation={scrollToObservation}
+            onStart={handleStart}
             onTongueUpload={handleTongueUpload}
           />
         ) : (
@@ -545,137 +567,184 @@ function App() {
 function StudentMeasurementView({
   bpm,
   busy,
-  canUploadTongue,
   chartData,
   currentStatus,
-  heartFinished,
+  deviceHumanState,
   history,
-  mainPrompt,
   nickname,
   peopleAhead,
   previewUrl,
-  queueLocked,
   secondsLeft,
   sessionPayload,
   setNickname,
+  stage,
   user,
   onCancel,
   onFinish,
   onJoinQueue,
-  onLogin,
-  onScrollToObservation,
+  onStart,
   onTongueUpload,
 }: {
   bpm: number | null
   busy: string
-  canUploadTongue: boolean
   chartData: Array<{ name: string; bpm: number; time: string }>
   currentStatus: string
-  heartFinished: boolean
+  deviceHumanState: string
   history: HistoryResponse['items']
-  mainPrompt: { title: string; description: string; action: string; tone: string }
   nickname: string
   peopleAhead: number
   previewUrl: string
-  queueLocked: boolean
   secondsLeft: number | null
   sessionPayload: SessionPayload | null
   setNickname: (value: string) => void
+  stage: StageKey
   user: User | null
   onCancel: () => void
   onFinish: () => void
   onJoinQueue: () => void
-  onLogin: (event: FormEvent) => void
-  onScrollToObservation: () => void
+  onStart: (event: FormEvent) => void
   onTongueUpload: (file?: File) => void
 }) {
   return (
     <>
-      <section className="first-screen">
+      <section className={`stage-shell stage-${stage}`}>
         <IdentityQueueCard
-          busy={busy}
-          nickname={nickname}
-          peopleAhead={peopleAhead}
-          queueLocked={queueLocked}
-          sessionPayload={sessionPayload}
-          setNickname={setNickname}
-          user={user}
-          onCancel={onCancel}
-          onJoinQueue={onJoinQueue}
-          onLogin={onLogin}
-        />
-        <CurrentStepCard
-          currentStatus={currentStatus}
-          mainPrompt={mainPrompt}
-          sessionPayload={sessionPayload}
-          user={user}
-        />
-      </section>
-
-      <StepGuide currentStatus={currentStatus} payload={sessionPayload} user={user} />
-
-      <section className="main-flow">
-        <HeartMeasureCard
           bpm={bpm}
           busy={busy}
           currentStatus={currentStatus}
-          heartFinished={heartFinished}
-          prompt={mainPrompt}
+          deviceHumanState={deviceHumanState}
+          nickname={nickname}
+          peopleAhead={peopleAhead}
+          previewUrl={previewUrl}
           secondsLeft={secondsLeft}
           sessionPayload={sessionPayload}
+          setNickname={setNickname}
+          stage={stage}
+          user={user}
+          onCancel={onCancel}
           onFinish={onFinish}
-          onScrollToObservation={onScrollToObservation}
-        />
-        <TongueUploadCard
-          busy={busy}
-          canUploadTongue={canUploadTongue}
-          payload={sessionPayload}
-          previewUrl={previewUrl}
+          onJoinQueue={onJoinQueue}
+          onStart={onStart}
           onTongueUpload={onTongueUpload}
         />
+        <CurrentStepCard
+          chartData={chartData}
+          currentStatus={currentStatus}
+          deviceHumanState={deviceHumanState}
+          history={history}
+          peopleAhead={peopleAhead}
+          secondsLeft={secondsLeft}
+          sessionPayload={sessionPayload}
+          stage={stage}
+        />
       </section>
-
-      <ObservationCard payload={sessionPayload} />
-      <HistorySection chartData={chartData} history={history} />
+      <StepGuide stage={stage} />
     </>
   )
 }
 
-function IdentityQueueCard({
-  busy,
-  nickname,
-  peopleAhead,
-  queueLocked,
-  sessionPayload,
-  setNickname,
-  user,
-  onCancel,
-  onJoinQueue,
-  onLogin,
-}: {
+type StageViewProps = {
+  bpm: number | null
   busy: string
+  currentStatus: string
+  deviceHumanState: string
   nickname: string
   peopleAhead: number
-  queueLocked: boolean
+  previewUrl: string
+  secondsLeft: number | null
   sessionPayload: SessionPayload | null
   setNickname: (value: string) => void
+  stage: StageKey
   user: User | null
   onCancel: () => void
+  onFinish: () => void
   onJoinQueue: () => void
-  onLogin: (event: FormEvent) => void
-}) {
-  const waiting = isWaitingSession(sessionPayload)
-  const active = isActiveSession(sessionPayload)
+  onStart: (event: FormEvent) => void
+  onTongueUpload: (file?: File) => void
+}
+
+function IdentityQueueCard({
+  bpm,
+  busy,
+  currentStatus,
+  deviceHumanState,
+  nickname,
+  peopleAhead,
+  previewUrl,
+  secondsLeft,
+  sessionPayload,
+  setNickname,
+  stage,
+  user,
+  onCancel,
+  onFinish,
+  onJoinQueue,
+  onStart,
+  onTongueUpload,
+}: StageViewProps) {
+  if (stage === 'ready' || stage === 'measuring') {
+    return (
+      <HeartMeasureCard
+        bpm={bpm}
+        busy={busy}
+        currentStatus={currentStatus}
+        deviceHumanState={deviceHumanState}
+        secondsLeft={secondsLeft}
+        stage={stage}
+        onCancel={onCancel}
+        onFinish={onFinish}
+      />
+    )
+  }
+
+  if (stage === 'tongue') {
+    return <TongueUploadCard bpm={bpm} busy={busy} payload={sessionPayload} previewUrl={previewUrl} onTongueUpload={onTongueUpload} />
+  }
+
+  if (stage === 'observation') {
+    return <ObservationCard payload={sessionPayload} />
+  }
+
+  if (stage === 'queue') {
+    return (
+      <section className="main-stage-card queue-stage">
+        <p className="stage-kicker">你好，{user?.nickname}</p>
+        <h2>加入测量队列</h2>
+        <p className="stage-copy">加入后，小站会按顺序分配公共心率设备。轮到你时，页面会提示你放置手指。</p>
+        <button className="primary-btn stage-main-button" disabled={busy === 'queue'} onClick={onJoinQueue}>
+          {busy === 'queue' ? <Loader2 className="animate-spin" size={20} /> : <Clock3 size={20} />}
+          加入测量队列
+        </button>
+      </section>
+    )
+  }
+
+  if (stage === 'waiting') {
+    return (
+      <section className="main-stage-card waiting-stage">
+        <p className="stage-kicker">你已加入队列</p>
+        <div className="queue-number">
+          <span>前面还有</span>
+          <strong>{peopleAhead}</strong>
+          <span>位同学</span>
+        </div>
+        <p className="stage-copy">请等待小站呼叫，轮到你时再把手指放上传感器。</p>
+        <button className="ghost-btn stage-side-button" disabled={busy === 'cancel'} onClick={onCancel}>
+          {busy === 'cancel' ? <Loader2 className="animate-spin" size={18} /> : <XCircle size={18} />}
+          取消排队
+        </button>
+      </section>
+    )
+  }
 
   return (
-    <section className="student-card identity-card">
-      <div className="card-heading">
-        <UserRound size={20} />
-        <span>身份与排队</span>
-      </div>
-      <form className="identity-form" onSubmit={onLogin}>
+    <section className="main-stage-card identity-stage">
+      <p className="stage-kicker">欢迎来到青康小站</p>
+      <h2>输入昵称，开始使用青康小站</h2>
+      <p className="stage-copy">小站会按顺序分配公共心率设备，完成心率记录后再上传舌象图片，生成本次观察卡。</p>
+      <form className="stage-form" onSubmit={onStart}>
         <label htmlFor="nickname">昵称或学号</label>
-        <div className="identity-row">
+        <div className="stage-form-row">
           <input
             id="nickname"
             value={nickname}
@@ -683,115 +752,130 @@ function IdentityQueueCard({
             placeholder="例如 Rino / 20240101"
             className="input"
           />
-          <button className="primary-btn" disabled={busy === 'login' || !nickname.trim()} type="submit">
-            {busy === 'login' ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
-            创建身份
+          <button className="primary-btn" disabled={busy === 'start' || !nickname.trim()} type="submit">
+            {busy === 'start' ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
+            创建身份并加入队列
           </button>
         </div>
       </form>
-
-      <div className="queue-summary">
-        <div>
-          <span>当前身份</span>
-          <strong>{user ? user.nickname : '未创建'}</strong>
-        </div>
-        <div>
-          <span>排队状态</span>
-          <strong>{waiting ? '排队中' : active ? '轮到你了' : '未排队'}</strong>
-        </div>
-        <div className="wide">
-          <span>你前面还有</span>
-          <strong>{waiting ? `${peopleAhead} 人` : active ? '0 人' : '--'}</strong>
-        </div>
-      </div>
-
-      <div className="action-row">
-        <button className="secondary-btn" disabled={!user || queueLocked || busy === 'queue'} onClick={onJoinQueue}>
-          {busy === 'queue' ? <Loader2 className="animate-spin" size={18} /> : <Clock3 size={18} />}
-          加入测量队列
-        </button>
-        <button className="ghost-btn" disabled={!sessionPayload?.session || busy === 'cancel'} onClick={onCancel}>
-          {busy === 'cancel' ? <Loader2 className="animate-spin" size={18} /> : <XCircle size={18} />}
-          取消排队
-        </button>
-      </div>
-      {!user && <p className="helper-text">请先创建身份，排队和上传功能会自动解锁。</p>}
     </section>
   )
 }
 
 function CurrentStepCard({
+  chartData,
   currentStatus,
-  mainPrompt,
+  deviceHumanState,
+  history,
+  peopleAhead,
+  secondsLeft,
   sessionPayload,
-  user,
+  stage,
 }: {
+  chartData: Array<{ name: string; bpm: number; time: string }>
   currentStatus: string
-  mainPrompt: { title: string; description: string; action: string; tone: string }
+  deviceHumanState: string
+  history: HistoryResponse['items']
+  peopleAhead: number
+  secondsLeft: number | null
   sessionPayload: SessionPayload | null
-  user: User | null
+  stage: StageKey
 }) {
+  if (stage === 'observation') {
+    return (
+      <aside className="secondary-panel">
+        <p className="panel-kicker">趋势</p>
+        <h3>最近记录</h3>
+        <HistorySection chartData={chartData} history={history} />
+      </aside>
+    )
+  }
+
+  const content: Record<Exclude<StageKey, 'observation'>, { title: string; body: string; facts: Array<[ReactNode, string]> }> = {
+    identity: {
+      title: '完成一次观察大约需要几分钟',
+      body: '先创建身份并加入队列，轮到你后完成心率记录，再上传舌象图片。',
+      facts: [
+        [<UserRound size={18} />, '输入昵称开始'],
+        [<HeartPulse size={18} />, '心率记录'],
+        [<CloudUpload size={18} />, '上传舌象'],
+      ],
+    },
+    queue: {
+      title: '公共设备会按顺序分配',
+      body: '同一时间只服务一位同学。加入队列后，请保持页面打开。',
+      facts: [
+        [<Radio size={18} />, deviceHumanState],
+        [<Clock3 size={18} />, '轮到你时页面会提示'],
+      ],
+    },
+    waiting: {
+      title: '请等待小站呼叫',
+      body: peopleAhead > 0 ? `前面还有 ${peopleAhead} 位同学，请暂时不要放置手指。` : '马上轮到你，请留意页面提示。',
+      facts: [
+        [<Clock3 size={18} />, peopleAhead > 0 ? `前面 ${peopleAhead} 位` : '即将开始'],
+        [<Radio size={18} />, deviceHumanState],
+      ],
+    },
+    ready: {
+      title: '手指轻放即可',
+      body: '不要用力按压传感器。信号稳定后，心率读数会自动出现。',
+      facts: [
+        [<Clock3 size={18} />, secondsLeft !== null ? `${secondsLeft} 秒` : '准备中'],
+        [<HeartPulse size={18} />, '等待稳定信号'],
+      ],
+    },
+    measuring: {
+      title: currentStatus === 'ADJUST_FINGER' ? '轻轻调整手指' : '保持现在的姿势',
+      body:
+        currentStatus === 'ADJUST_FINGER'
+          ? '如果信号过强或过弱，轻轻移动手指到更稳定的位置。'
+          : '测量过程中请不要移开手指，直到页面切换到下一步。',
+      facts: [
+        [<Waves size={18} />, currentStatus === 'ADJUST_FINGER' ? '调整接触' : '保持手指'],
+        [<Clock3 size={18} />, secondsLeft !== null ? `${secondsLeft} 秒` : '测量中'],
+      ],
+    },
+    tongue: {
+      title: '拍清楚舌象区域',
+      body: '建议使用自然光，尽量正对镜头，避免过暗、模糊或大面积遮挡。',
+      facts: [
+        [<ScanLine size={18} />, sessionPayload?.heart?.bpm ? `${sessionPayload.heart.bpm} BPM 已记录` : '心率已记录'],
+        [<CloudUpload size={18} />, '上传后生成观察卡'],
+      ],
+    },
+  }
+
+  const panel = content[stage]
   return (
-    <section className={`student-card current-card tone-${mainPrompt.tone}`}>
-      <p className="section-kicker">当前该做什么</p>
-      <h2>{mainPrompt.title}</h2>
-      <p>{mainPrompt.description}</p>
-      <div className="next-action">
-        <Bell size={18} />
-        <span>{mainPrompt.action}</span>
+    <aside className="secondary-panel">
+      <p className="panel-kicker">当前提示</p>
+      <h3>{panel.title}</h3>
+      <p>{panel.body}</p>
+      <div className="panel-facts">
+        {panel.facts.map(([icon, text]) => (
+          <span key={text}>
+            {icon}
+            {text}
+          </span>
+        ))}
       </div>
-      <div className="quick-facts">
-        <span>{user ? '身份已创建' : '未创建身份'}</span>
-        <span>{sessionPayload?.session ? cnStatus(currentStatus) : '未加入队列'}</span>
+      <div className="mini-disclaimer">
+        <ShieldCheck size={16} />
+        仅用于健康状态观察和科普记录，不作为医学诊断依据。
       </div>
-    </section>
+    </aside>
   )
 }
 
-function StepGuide({
-  currentStatus,
-  payload,
-  user,
-}: {
-  currentStatus: string
-  payload: SessionPayload | null
-  user: User | null
-}) {
-  const status = payload?.session?.status
-  const tongueDone = Boolean(payload?.tongue)
-
-  function stepState(key: string) {
-    if (key === 'identity') return user ? 'done' : 'active'
-    if (key === 'queue') {
-      if (!user) return 'locked'
-      if (payload?.session) return 'done'
-      return 'active'
-    }
-    if (key === 'ready') {
-      if (status === 'QUEUED') return 'active'
-      if (status === 'READY' || status === 'MEASURING' || status === 'FINISHED') return 'done'
-      return payload?.session ? 'done' : 'locked'
-    }
-    if (key === 'heart') {
-      if (currentStatus === 'HOLD_STILL' || currentStatus === 'MEASURING' || currentStatus === 'ADJUST_FINGER') {
-        return 'active'
-      }
-      if (status === 'FINISHED') return 'done'
-      return status === 'READY' ? 'active' : 'locked'
-    }
-    if (key === 'tongue') {
-      if (tongueDone) return 'done'
-      if (status === 'FINISHED') return 'active'
-      return 'locked'
-    }
-    if (key === 'result') return tongueDone ? 'done' : status === 'FINISHED' ? 'active' : 'locked'
-    return 'locked'
-  }
+function StepGuide({ stage }: { stage: StageKey }) {
+  const activeKey = progressKeyForStage(stage)
+  const activeIndex = flowSteps.findIndex((step) => step.key === activeKey)
 
   return (
-    <section className="stepper-card" aria-label="测量流程">
+    <section className="stepper-card progress-rail" aria-label="测量流程">
       {flowSteps.map((step, index) => {
-        const state = stepState(step.key)
+        const state = index < activeIndex ? 'done' : index === activeIndex ? 'active' : 'pending'
         return (
           <div className={`step-item is-${state}`} key={step.key}>
             <span className="step-marker">{state === 'done' ? <CheckCircle2 size={18} /> : index + 1}</span>
@@ -807,73 +891,72 @@ function HeartMeasureCard({
   bpm,
   busy,
   currentStatus,
-  heartFinished,
-  prompt,
+  deviceHumanState,
   secondsLeft,
-  sessionPayload,
+  stage,
+  onCancel,
   onFinish,
-  onScrollToObservation,
-}: {
-  bpm: number | null
-  busy: string
-  currentStatus: string
-  heartFinished: boolean
-  prompt: { title: string; description: string; action: string; tone: string }
-  secondsLeft: number | null
-  sessionPayload: SessionPayload | null
-  onFinish: () => void
-  onScrollToObservation: () => void
-}) {
-  const measuring = currentStatus === 'MEASURING'
-  const active = isActiveSession(sessionPayload)
+}: Pick<StageViewProps, 'bpm' | 'busy' | 'currentStatus' | 'deviceHumanState' | 'secondsLeft' | 'stage' | 'onCancel' | 'onFinish'>) {
+  if (stage === 'ready') {
+    return (
+      <section className="main-stage-card ready-stage">
+        <p className="stage-kicker">轮到你了</p>
+        <h2>请将手指轻放在传感器上</h2>
+        <p className="stage-copy">轻放即可，不要用力按压。设备读取到稳定信号后会自动进入测量。</p>
+        <div className="stage-metrics">
+          <SummaryPill icon={<Radio size={18} />} label="设备提示" value={deviceHumanState} />
+          <SummaryPill icon={<Clock3 size={18} />} label="倒计时" value={secondsLeft !== null ? `${secondsLeft} 秒` : '准备中'} />
+        </div>
+        <button className="ghost-btn stage-side-button" disabled={busy === 'cancel'} onClick={onCancel}>
+          {busy === 'cancel' ? <Loader2 className="animate-spin" size={18} /> : <XCircle size={18} />}
+          暂不测量
+        </button>
+      </section>
+    )
+  }
 
+  const needsAdjust = currentStatus === 'ADJUST_FINGER'
   return (
-    <section className={`heart-student-card tone-${prompt.tone}`}>
-      <div className="card-heading">
-        <HeartPulse size={20} />
-        <span>心率测量</span>
+    <section className="main-stage-card measuring-stage">
+      <div className={`stage-bpm ${bpm ? 'has-reading' : ''}`}>
+        <strong>{bpm || '--'}</strong>
+        <span>BPM</span>
       </div>
-      <div className="heart-focus">
-        <div className={`heart-orb ${measuring ? 'is-live' : ''}`}>
-          <strong>{bpm || '--'}</strong>
-          <span>BPM</span>
-        </div>
-        <div className="heart-instruction">
-          <span>{cnStatus(currentStatus)}</span>
-          <h3>{measuring && bpm ? '正在测量，请保持手指' : prompt.title}</h3>
-          <p>{measuring && bpm ? '已经读到心率数据，但请继续保持手指，等待记录完成。' : prompt.description}</p>
-          <div className="pulse-band">
-            <div className="pulse-line"></div>
-          </div>
-        </div>
+      <h2>{needsAdjust ? '信号不稳定，请轻轻调整手指' : '正在测量，请保持手指'}</h2>
+      <p className="stage-copy">
+        {needsAdjust ? '请轻轻调整手指位置，找到更稳定的接触点。' : '即使已经读到心率数据，也请不要移开手指。'}
+      </p>
+      <div className="stage-metrics">
+        <SummaryPill icon={<Clock3 size={18} />} label="倒计时" value={secondsLeft !== null ? `${secondsLeft} 秒` : '测量中'} />
+        <SummaryPill icon={<HeartPulse size={18} />} label="提示" value={needsAdjust ? '轻轻调整' : '保持手指'} />
       </div>
-      <div className="measure-actions">
-        <div>
-          <span>剩余时间</span>
-          <strong>{secondsLeft !== null ? `${secondsLeft} 秒` : '--'}</strong>
-        </div>
-        <button className="secondary-btn" disabled={!active || busy === 'finish'} onClick={onFinish}>
-          {busy === 'finish' ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
-          结束测量
-        </button>
-        <button className="ghost-btn" disabled={!heartFinished} onClick={onScrollToObservation}>
-          <Eye size={18} />
-          查看观察卡
-        </button>
-      </div>
+      <button className="ghost-btn stage-side-button" disabled={busy === 'finish'} onClick={onFinish}>
+        {busy === 'finish' ? <Loader2 className="animate-spin" size={18} /> : <XCircle size={18} />}
+        提前结束
+      </button>
     </section>
   )
 }
 
+function SummaryPill({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="summary-pill">
+      {icon}
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
 function TongueUploadCard({
+  bpm,
   busy,
-  canUploadTongue,
   payload,
   previewUrl,
   onTongueUpload,
 }: {
+  bpm: number | null
   busy: string
-  canUploadTongue: boolean
   payload: SessionPayload | null
   previewUrl: string
   onTongueUpload: (file?: File) => void
@@ -881,20 +964,21 @@ function TongueUploadCard({
   const imageUrl = previewUrl || (payload?.tongue?.image_path ? `${API_BASE}/${payload.tongue.image_path}` : '')
 
   return (
-    <section className={`student-card tongue-card ${canUploadTongue ? 'is-ready' : ''}`}>
-      <div className="card-heading">
-        <CloudUpload size={20} />
-        <span>舌象上传</span>
+    <section className="main-stage-card tongue-stage">
+      <p className="stage-kicker">心率记录完成</p>
+      <h2>现在可以上传舌象图片</h2>
+      <p className="stage-copy">上传后，小站会把心率记录和舌象图片合并成非诊断性的观察卡。</p>
+      <div className="compact-heart-summary">
+        <HeartPulse size={20} />
+        <span>心率记录</span>
+        <strong>{bpm ? `${bpm} BPM` : '已记录'}</strong>
       </div>
-      <p className="card-intro">
-        {canUploadTongue ? '心率记录完成后，可以上传一张舌象图片。' : '完成心率记录后可上传。'}
-      </p>
-      <label className={`upload-zone ${!canUploadTongue ? 'is-disabled' : ''}`} htmlFor="tongue-file">
+      <label className="upload-primary" htmlFor="tongue-file">
         <input
           id="tongue-file"
           type="file"
           accept="image/*"
-          disabled={!canUploadTongue || busy === 'tongue'}
+          disabled={busy === 'tongue'}
           onChange={(event) => onTongueUpload(event.target.files?.[0])}
         />
         {imageUrl ? (
@@ -904,16 +988,12 @@ function TongueUploadCard({
           </div>
         ) : (
           <div className="upload-empty">
-            {busy === 'tongue' ? <Loader2 className="animate-spin" size={28} /> : <ScanLine size={30} />}
+            {busy === 'tongue' ? <Loader2 className="animate-spin" size={30} /> : <CloudUpload size={32} />}
             <strong>上传舌象图片</strong>
-            <span>舌象图片质量检查 / 舌体区域识别占位</span>
+            <span>支持手机拍照或从相册选择</span>
           </div>
         )}
       </label>
-      <div className="plain-facts">
-        <span>{payload?.tongue ? '图片已记录' : '图片待上传'}</span>
-        <span>{payload?.tongue ? '质量检查占位已生成' : '等待心率完成'}</span>
-      </div>
     </section>
   )
 }
@@ -923,19 +1003,15 @@ function ObservationCard({ payload }: { payload: SessionPayload | null }) {
   const tongue = payload?.tongue
   const heartText = heart?.bpm
     ? `本次记录到 ${heart.bpm} BPM，可作为学习生活状态观察参考。`
-    : payload?.session?.status === 'FINISHED'
-      ? '心率记录已完成，暂无稳定 BPM 数值。'
-      : '完成心率测量后，这里会显示心率记录摘要。'
+    : '心率记录已完成，暂无稳定 BPM 数值。'
   const tongueText = tongue
     ? '舌象图片已保存，后续可接入图片质量检查和舌体区域识别。'
-    : '上传舌象图片后，这里会显示图片记录摘要。'
+    : '舌象图片已上传，等待图片摘要更新。'
 
   return (
-    <section className="observation-card" id="observation-card">
-      <div className="card-heading">
-        <Leaf size={20} />
-        <span>综合观察卡</span>
-      </div>
+    <section className="main-stage-card observation-stage" id="observation-card">
+      <p className="stage-kicker">生成观察卡</p>
+      <h2>本次观察卡已生成</h2>
       <div className="observation-grid">
         <ObservationItem title="心率记录摘要" text={heartText} />
         <ObservationItem title="舌象图片记录摘要" text={tongueText} />
