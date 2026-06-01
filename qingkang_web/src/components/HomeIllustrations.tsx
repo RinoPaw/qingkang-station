@@ -1,7 +1,7 @@
-import logoMark from '../assets/brand/logo-mark.png'
-import leafMark from '../assets/brand/leaf-mark.png'
-import heartStation from '../assets/illustrations/heart-station.png'
-import tongueUpload from '../assets/illustrations/tongue-upload.png'
+import logoMark from '../assets/logo-mark.png'
+import leafMark from '../assets/leaf-mark.png'
+import heartStation from '../assets/heart-station.png'
+import tongueUpload from '../assets/tongue-upload.png'
 
 export function QingKangLogoMark() {
   return <img className="home-logo-svg" src={logoMark} alt="青康小站标志" />
