@@ -1,6 +1,6 @@
-import type { DevicePollResponse, HistoryResponse, SessionPayload, User } from './types'
+import type { DevicePollResponse, HistoryResponse, SessionPayload, User } from '../types/index'
 
-export const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:2070'
 export const DEVICE_ID = import.meta.env.VITE_DEVICE_ID || 'esp32_s3_001'
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {

@@ -39,14 +39,14 @@ sketch_may27a/sketch_may27a.ino
 ```bash
 cd qingkang_server
 uv sync
-uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn main:app --host 0.0.0.0 --port 2070 --reload
 ```
 
 启动后访问：
 
 ```text
-http://127.0.0.1:8000
-http://127.0.0.1:8000/docs
+http://127.0.0.1:2070
+http://127.0.0.1:2070/docs
 ```
 
 ## 前端启动
@@ -57,16 +57,22 @@ corepack pnpm install
 corepack pnpm dev
 ```
 
-如后端不是本机 `8000`，可设置：
+前端默认访问：
+
+```text
+http://127.0.0.1:2071
+```
+
+如后端不是本机 `2070`，可设置：
 
 ```bash
-VITE_API_BASE_URL=http://你的后端地址:8000 corepack pnpm dev
+VITE_API_BASE_URL=http://你的后端地址:2070 corepack pnpm dev
 ```
 
 Windows PowerShell 示例：
 
 ```powershell
-$env:VITE_API_BASE_URL="http://127.0.0.1:8000"; corepack pnpm dev
+$env:VITE_API_BASE_URL="http://127.0.0.1:2070"; corepack pnpm dev
 ```
 
 ## 核心数据表

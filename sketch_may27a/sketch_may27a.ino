@@ -21,7 +21,7 @@
 const char* WIFI_SSID = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
-String SERVER_BASE_URL = "http://192.168.1.100:8000";
+String SERVER_BASE_URL = "http://192.168.1.100:2070";
 const char* DEVICE_ID = "esp32_s3_001";
 
 const unsigned long SERVER_POLL_INTERVAL_MS = 1000;
