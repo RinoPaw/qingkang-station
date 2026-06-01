@@ -11,7 +11,6 @@ import { AppTopbar } from './AppTopbar'
 import { DisclaimerBar } from './DisclaimerBar'
 import { SidebarNavigation } from './SidebarNavigation'
 import type { AppPage } from './SidebarNavigation'
-import { formatDemoDateTime } from '../lib/demoDates'
 import type { User } from '../types/index'
 
 type HomePageProps = {
@@ -38,10 +37,6 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
               <span>叶</span>
             </h1>
             <p>欢迎来到青康小站，关注身心健康，从点滴记录开始</p>
-          </div>
-          <div className="home-quote">
-            <p>「起居有常，茶息有度」</p>
-            <span>校园轻健康状态观察</span>
           </div>
         </header>
 
@@ -79,10 +74,7 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
                 <span></span>
               </div>
             </div>
-            <div className="home-queue-strip">
-              <span>设备状态 <strong>{deviceHumanState}</strong></span>
-              <span>预计等待 <strong>8 分钟</strong></span>
-            </div>
+            <p className="home-live-status">当前设备：{deviceHumanState}</p>
             <button className="home-primary-action" onClick={() => onNavigate('heart')} type="button">
               测量心率
               <i>→</i>
@@ -122,8 +114,9 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
                 <div className="phone-shutter"></div>
               </div>
             </div>
+            <p className="home-live-status is-blue">无需等待公共设备</p>
             <button className="home-primary-action is-blue" onClick={() => onNavigate('tongue')} type="button">
-              立即上传舌象
+              上传舌象
               <i>→</i>
             </button>
           </article>
@@ -133,59 +126,17 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
           <div className="home-section-title">
             <div>
               <h2>综合观察卡</h2>
-              <p>整合心率与舌象记录，生成你的综合健康观察</p>
+              <p>整合心率与舌象记录，生成你的综合状态观察</p>
             </div>
-            <span>多维数据 · 综合分析</span>
+            <span>记录后生成</span>
           </div>
 
-          <div className="home-observation-grid">
-            <div className="home-mini-card">
-              <h3>最近更新</h3>
-              <div className="home-record-line">
-                <HeartPulse size={22} />
-                <span>
-                  <strong>心率记录</strong>
-                  {formatDemoDateTime(0, 10, 32)}
-                </span>
-              </div>
-              <div className="home-record-line is-tongue">
-                <ScanLine size={22} />
-                <span>
-                  <strong>舌象记录</strong>
-                  {formatDemoDateTime(1, 22, 15)}
-                </span>
-              </div>
+          <div className="home-observation-empty">
+            <div>
+              <h3>完成记录后生成健康评分</h3>
+              <p>心率记录和舌象图片都可以独立完成，系统会根据已有记录生成观察摘要。</p>
             </div>
-
-            <div className="home-score-card">
-              <h3>综合状态</h3>
-              <div className="home-score-ring">
-                <strong>82</strong>
-                <span>趋势参考</span>
-              </div>
-              <button onClick={() => onNavigate('observation')} type="button">查看详情</button>
-            </div>
-
-            <div className="home-chart-card">
-              <div className="home-chart-head">
-                <h3>趋势概览</h3>
-                <span>近 7 天</span>
-              </div>
-              <div className="home-chart-lines" aria-hidden="true">
-                <svg viewBox="0 0 360 150" role="img">
-                  <path className="grid-line" d="M0 30H360M0 75H360M0 120H360" />
-                  <polyline className="heart-line" points="0,105 60,70 120,82 180,96 240,72 300,66 360,58" />
-                  <polyline className="tongue-line" points="0,118 60,88 120,100 180,108 240,92 300,82 360,104" />
-                </svg>
-              </div>
-            </div>
-
-            <div className="home-advice-card">
-              <h3>本周观察建议</h3>
-              <p>心率整体平稳，继续保持规律作息与适度运动。</p>
-              <p>舌象记录建议继续关注饮水、休息与清淡饮食。</p>
-              <button onClick={() => onNavigate('observation')} type="button">查看完整建议 →</button>
-            </div>
+            <button onClick={() => onNavigate('observation')} type="button">查看综合观察卡</button>
           </div>
         </section>
 
