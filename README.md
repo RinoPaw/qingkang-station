@@ -26,13 +26,13 @@
 ```powershell
 cd qingkang_server
 uv sync
-uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn main:app --host 0.0.0.0 --port 2070 --reload
 ```
 
 接口文档：
 
 ```text
-http://127.0.0.1:8000/docs
+http://127.0.0.1:2070/docs
 ```
 
 ## 前端
@@ -46,7 +46,7 @@ corepack pnpm dev
 访问：
 
 ```text
-http://127.0.0.1:5173/
+http://127.0.0.1:2071/
 ```
 
 ## ESP32 网络接口

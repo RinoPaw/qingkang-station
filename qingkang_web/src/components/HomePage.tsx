@@ -123,7 +123,7 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
               </div>
             </div>
             <button className="home-primary-action is-blue" onClick={() => onNavigate('tongue')} type="button">
-              上传舌象
+              立即上传舌象
               <i>→</i>
             </button>
           </article>
@@ -133,7 +133,7 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
           <div className="home-section-title">
             <div>
               <h2>综合观察卡</h2>
-              <p>整合心率与舌象记录，生成你的综合状态观察</p>
+              <p>整合心率与舌象记录，生成你的综合健康观察</p>
             </div>
             <span>多维数据 · 综合分析</span>
           </div>
@@ -158,7 +158,7 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
             </div>
 
             <div className="home-score-card">
-              <h3>健康评分</h3>
+              <h3>综合状态</h3>
               <div className="home-score-ring">
                 <strong>82</strong>
                 <span>趋势参考</span>
