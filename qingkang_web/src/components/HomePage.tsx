@@ -12,6 +12,7 @@ import { DisclaimerBar } from './DisclaimerBar'
 import { SidebarNavigation } from './SidebarNavigation'
 import type { AppPage } from './SidebarNavigation'
 import type { User } from '../types/index'
+import '../styles/home-overrides.css'
 
 type HomePageProps = {
   deviceHumanState: string
