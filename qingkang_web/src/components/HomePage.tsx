@@ -84,7 +84,7 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
               <span>预计等待 <strong>8 分钟</strong></span>
             </div>
             <button className="home-primary-action" onClick={() => onNavigate('heart')} type="button">
-              查看设备与排队
+              测量心率
               <i>→</i>
             </button>
           </article>
