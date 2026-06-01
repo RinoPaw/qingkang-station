@@ -1,6 +1,11 @@
 import { HeartPulse, ScanLine } from 'lucide-react'
 import { AppTopbar } from './AppTopbar'
 import { DisclaimerBar } from './DisclaimerBar'
+import {
+  HeartStationIllustration,
+  HomeLeafMark,
+  TongueUploadIllustration,
+} from './HomeIllustrations'
 import { SidebarNavigation } from './SidebarNavigation'
 import type { AppPage } from './SidebarNavigation'
 import type { User } from '../types/index'
@@ -26,7 +31,7 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
             <div>
               <h1>
                 你好，{nickname}
-                <span>叶</span>
+                <span className="home-leaf-mark"><HomeLeafMark /></span>
               </h1>
             </div>
           </header>
@@ -46,12 +51,7 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
             </div>
 
             <div className="home-card-body is-simple">
-              <div className="device-illustration" aria-hidden="true">
-                <div className="device-screen">
-                  <HeartPulse size={24} />
-                </div>
-                <span></span>
-              </div>
+              <HeartStationIllustration />
             </div>
 
             <p className="home-live-status">{deviceHumanState}</p>
@@ -73,12 +73,7 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
             </div>
 
             <div className="home-card-body is-simple">
-              <div className="phone-illustration" aria-hidden="true">
-                <div className="phone-camera"></div>
-                <div className="tongue-preview"></div>
-                <div className="scan-corners"></div>
-                <div className="phone-shutter"></div>
-              </div>
+              <TongueUploadIllustration />
             </div>
 
             <p className="home-live-status is-blue">无需排队</p>
