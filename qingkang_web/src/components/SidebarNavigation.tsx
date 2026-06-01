@@ -6,6 +6,7 @@ import {
   ScanLine,
   UserRound,
 } from 'lucide-react'
+import { QingKangLogoMark } from './HomeIllustrations'
 
 export type AppPage = 'home' | 'heart' | 'tongue' | 'observation' | 'records' | 'guide' | 'profile'
 
@@ -27,7 +28,9 @@ export function SidebarNavigation({ activePage, onNavigate }: SidebarNavigationP
   return (
     <aside className="home-sidebar">
       <div className="home-logo">
-        <span className="home-logo-mark"></span>
+        <span className="home-logo-mark">
+          <QingKangLogoMark />
+        </span>
         <div>
           <strong>青康小站</strong>
           <p>QINGKANG STATION</p>
