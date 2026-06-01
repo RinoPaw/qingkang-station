@@ -12,15 +12,22 @@ type AppTopbarProps = {
 export function AppTopbar({ className = '', user, onLogout, onNavigate }: AppTopbarProps) {
   return (
     <div className={`home-topbar ${className}`.trim()}>
-      <button className="home-user-pill" onClick={user ? onLogout : () => onNavigate('profile')} type="button">
+      <div className="home-user-pill">
         <span className="home-avatar">
           <CircleUserRound size={28} />
         </span>
         <span>
           <strong>{user?.nickname || '同学'}</strong>
         </span>
-        {user && <LogOut size={16} />}
-      </button>
+        <button
+          aria-label={user ? '退出登录' : '创建身份'}
+          className="home-user-logout"
+          onClick={user ? onLogout : () => onNavigate('profile')}
+          type="button"
+        >
+          <LogOut size={16} />
+        </button>
+      </div>
     </div>
   )
 }
