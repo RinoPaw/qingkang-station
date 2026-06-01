@@ -1,3 +1,21 @@
+.home-logo-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.home-logo-mark::after {
+  display: none;
+}
+
+.home-logo-svg {
+  width: 58px;
+  height: 58px;
+}
+
 .home-head-row {
   display: flex;
   align-items: center;
@@ -18,6 +36,20 @@
 .home-head-row .home-user-pill {
   min-height: 56px;
   padding: 8px 12px 8px 14px;
+}
+
+.home-leaf-mark {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  margin-left: 12px;
+  vertical-align: -6px;
+  transform: none;
+}
+
+.home-leaf-svg {
+  width: 100%;
+  height: 100%;
 }
 
 .home-user-logout {
@@ -53,17 +85,12 @@
   min-height: 250px;
   align-items: center;
   justify-content: center;
-  padding: 18px 0 8px;
+  padding: 10px 0 4px;
 }
 
-.home-card-body.is-simple .device-illustration {
-  width: 154px;
-  height: 218px;
-}
-
-.home-card-body.is-simple .phone-illustration {
-  width: 138px;
-  height: 258px;
+.home-hero-illustration {
+  width: min(360px, 82%);
+  max-height: 276px;
 }
 
 .home-live-status {
