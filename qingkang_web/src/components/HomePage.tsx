@@ -88,15 +88,13 @@ export function HomePage({ deviceHumanState, user, onLogout, onNavigate }: HomeP
           <div className="home-section-title">
             <div>
               <h2>综合观察卡</h2>
-              <p>完成记录后生成健康评分与观察摘要</p>
             </div>
-            <span>记录后生成</span>
           </div>
 
           <div className="home-observation-empty">
             <div>
-              <h3>还没有记录</h3>
-              <p>完成一次心率记录或舌象上传后，这里会自动汇总。</p>
+              <h3>先记录一项</h3>
+              <p>心率或舌象都会汇总到这里。</p>
             </div>
             <button onClick={() => onNavigate('observation')} type="button">查看观察卡</button>
           </div>
