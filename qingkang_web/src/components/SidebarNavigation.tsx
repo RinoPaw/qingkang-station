@@ -3,7 +3,6 @@ import {
   FileText,
   HeartPulse,
   Home,
-  MonitorSmartphone,
   ScanLine,
   UserRound,
 } from 'lucide-react'
@@ -48,15 +47,6 @@ export function SidebarNavigation({ activePage, onNavigate }: SidebarNavigationP
           </button>
         ))}
       </nav>
-
-      <button className="home-guide-card" onClick={() => onNavigate('guide')} type="button">
-        <MonitorSmartphone size={28} />
-        <span>
-          <strong>公共设备指引</strong>
-          <p>查看附近设备与使用指南</p>
-        </span>
-        <i>→</i>
-      </button>
 
       <p className="home-sidebar-note">青康小站 · 科技守护健康</p>
       <div className="home-campus-ghost" aria-hidden="true"></div>
