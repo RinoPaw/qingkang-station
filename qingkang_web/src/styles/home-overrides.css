@@ -1,3 +1,7 @@
+.home-main {
+  padding-top: 8px;
+}
+
 .home-logo-mark {
   display: inline-flex;
   width: 64px;
@@ -27,7 +31,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 36px 4px 34px;
+  padding: 18px 4px 26px;
 }
 
 .home-head-row .home-hero {
