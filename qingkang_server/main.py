@@ -881,11 +881,14 @@ def upload_heart_rate(data: HeartRateData):
 
 @app.post("/api/tongue-image")
 async def upload_tongue_image(
-    session_id: str = Form(...),
+    session_id: str = Form(""),
     user_id: str = Form("demo_user"),
     file: UploadFile = File(...),
 ):
     timestamp = now_ts()
+    user_id = sanitize_identifier(user_id, "demo_user")
+    requested_session_id = session_id.strip()
+    session_id = sanitize_identifier(requested_session_id or f"sess_{uuid.uuid4().hex[:12]}", "session")
     safe_session = sanitize_identifier(session_id, "session")
     safe_name = sanitize_filename(file.filename)
     safe_filename = f"{safe_session}_{timestamp}_{safe_name}"
@@ -900,11 +903,12 @@ async def upload_tongue_image(
 
     conn = get_conn()
     if not fetch_session(conn, session_id):
+        user = get_user_by_id(conn, user_id)
         get_or_create_legacy_session(
             conn,
             session_id=session_id,
-            user_id=sanitize_identifier(user_id, "demo_user"),
-            nickname=sanitize_nickname(user_id),
+            user_id=user_id,
+            nickname=sanitize_nickname(user["nickname"] if user else user_id),
         )
 
     conn.execute(

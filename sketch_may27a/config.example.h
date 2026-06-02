@@ -8,8 +8,10 @@
 #define OLED_ADDR 0x3C
 #define HEART_PIN 7
 
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_SSID = "WIN-RINO";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
-String SERVER_BASE_URL = "http://192.168.1.100:2070";
+// If your laptop shares WiFi/hotspot for the ESP32, the backend is often on
+// the gateway address. Change it if your backend runs on another LAN IP.
+String SERVER_BASE_URL = "http://192.168.137.1:2070";
 const char* DEVICE_ID = "esp32_s3_001";

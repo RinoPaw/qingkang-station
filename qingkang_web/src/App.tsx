@@ -18,8 +18,10 @@ import {
   safeBpm,
   statusFromPayload,
 } from './lib/statusText'
+import type { SessionPayload } from './types/index'
 
 const appPages: AppPage[] = ['home', 'heart', 'tongue', 'observation', 'records', 'guide', 'profile']
+const REPORT_STORAGE = 'qingkang_generated_reports'
 
 function pageFromHash(): AppPage {
   const value = window.location.hash.replace(/^#\/?/, '')
@@ -30,6 +32,16 @@ function App() {
   const [activePage, setActivePage] = useState<AppPage>(() => pageFromHash())
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [generatingSessionId, setGeneratingSessionId] = useState('')
+  const [generatedReports, setGeneratedReports] = useState<Set<string>>(() => {
+    const stored = localStorage.getItem(REPORT_STORAGE)
+    if (!stored) return new Set()
+    try {
+      return new Set(JSON.parse(stored) as string[])
+    } catch {
+      return new Set()
+    }
+  })
   const identity = useUserIdentity()
   const queue = useQueueSession({ user: identity.user, setError, setNotice })
   const device = useDeviceStatus()
@@ -42,6 +54,13 @@ function App() {
   const deviceHumanState = getDeviceHumanState(device.devicePoll, queue.sessionPayload)
   const busy = identity.busy || queue.busy
   const activeStatuses = new Set(['QUEUED', 'READY', 'MEASURING'])
+  const reportSessionId = queue.sessionPayload?.session_id || queue.sessionId
+  const reportState =
+    reportSessionId && generatingSessionId === reportSessionId
+      ? 'generating'
+      : reportSessionId && generatedReports.has(reportSessionId)
+        ? 'ready'
+        : 'idle'
 
   useEffect(() => {
     function syncPageFromHistory() {
@@ -55,6 +74,36 @@ function App() {
       window.removeEventListener('popstate', syncPageFromHistory)
     }
   }, [])
+
+  useEffect(() => {
+    const payload = queue.sessionPayload
+    if (!payload?.session_id || !payload.heart || !payload.tongue) return
+    if (generatedReports.has(payload.session_id) || generatingSessionId === payload.session_id) return
+
+    let finishTimer = 0
+    const startTimer = window.setTimeout(() => {
+      setNotice('心率记录与舌象图片已齐，正在生成观察卡')
+      setGeneratingSessionId(payload.session_id)
+      handleNavigate('observation')
+
+      finishTimer = window.setTimeout(() => {
+        markReportGenerated(payload.session_id)
+        setNotice('综合观察卡已生成')
+      }, 900)
+    }, 900)
+
+    return () => {
+      window.clearTimeout(startTimer)
+      window.clearTimeout(finishTimer)
+    }
+  }, [
+    generatedReports,
+    generatingSessionId,
+    queue.sessionPayload,
+    queue.sessionPayload?.heart,
+    queue.sessionPayload?.session_id,
+    queue.sessionPayload?.tongue,
+  ])
 
   function handleNavigate(page: AppPage) {
     setActivePage(page)
@@ -101,7 +150,10 @@ function App() {
     setError('')
     setNotice('')
     try {
-      await queue.finishMeasurement()
+      const payload = await queue.finishMeasurement()
+      if (payload?.heart && payload.tongue) {
+        setNotice('心率记录与舌象图片已齐，正在生成观察卡')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '结束测量失败，请稍后再试')
     }
@@ -126,13 +178,39 @@ function App() {
     setNotice('本次心率记录已保存，可稍后补充舌象图片')
   }
 
-  async function handleTongueUploadComplete() {
+  async function handleTongueUploadComplete(payload: SessionPayload) {
     setError('')
-    setNotice('舌象图片已记录，可前往观察卡查看本次状态观察')
+    setNotice(payload.heart && payload.tongue ? '两项记录已齐，正在生成观察卡' : '舌象图片已记录，可手动生成观察卡或继续补充心率')
+    queue.adoptSession(payload)
     await Promise.all([
-      queue.refreshSession().catch(() => undefined),
+      queue.refreshSession(payload.session_id).catch(() => undefined),
       queue.refreshHistory(identity.user).catch(() => undefined),
     ])
+  }
+
+  function markReportGenerated(sessionId: string) {
+    setGeneratingSessionId('')
+    setGeneratedReports((current) => {
+      const next = new Set(current)
+      next.add(sessionId)
+      localStorage.setItem(REPORT_STORAGE, JSON.stringify([...next]))
+      return next
+    })
+  }
+
+  function handleGenerateReport() {
+    const payload = queue.sessionPayload
+    if (!payload?.session_id || (!payload.heart && !payload.tongue)) {
+      setNotice('请先完成心率记录或上传舌象图片')
+      return
+    }
+
+    setNotice(payload.heart && payload.tongue ? '正在生成综合观察卡' : '正在根据已有记录生成观察卡')
+    setGeneratingSessionId(payload.session_id)
+    window.setTimeout(() => {
+      markReportGenerated(payload.session_id)
+      setNotice('观察卡已生成，可继续补充另一项记录让内容更完整')
+    }, 900)
   }
 
   if (activePage === 'home') {
@@ -189,7 +267,9 @@ function App() {
         currentPayload={queue.sessionPayload}
         debugPanel={<RoadshowDebugPanel device={device.devicePoll} payload={queue.sessionPayload} />}
         history={queue.history}
+        reportState={reportState}
         user={identity.user}
+        onGenerateReport={handleGenerateReport}
         onLogout={handleLogout}
         onNavigate={handleNavigate}
       />

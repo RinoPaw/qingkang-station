@@ -48,7 +48,7 @@ export function getStage(
 ): StageKey {
   const status = payload?.session?.status
   if (!user) return 'identity'
-  if (payload?.tongue && payload.combined_observation?.summary?.trim()) return 'observation'
+  if (payload?.heart && payload?.tongue && payload.combined_observation?.summary?.trim()) return 'observation'
   if (status === 'FINISHED') return 'tongue'
   if (!payload?.session || status === 'TIMEOUT' || status === 'CANCELLED') return 'queue'
   if (status === 'QUEUED') return 'waiting'

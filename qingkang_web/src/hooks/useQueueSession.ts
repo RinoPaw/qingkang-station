@@ -101,8 +101,10 @@ export function useQueueSession({ setError, setNotice, user }: FeedbackHandlers)
       setSessionPayload(payload)
       setNotice('心率记录完成，可以上传舌象图片')
       await refreshHistory()
+      return payload
     } catch (err) {
       setError(err instanceof Error ? err.message : '结束测量失败')
+      return null
     } finally {
       setBusy('')
     }
@@ -131,6 +133,12 @@ export function useQueueSession({ setError, setNotice, user }: FeedbackHandlers)
     localStorage.removeItem(STORAGE_SESSION)
   }
 
+  function adoptSession(payload: SessionPayload) {
+    setSessionPayload(payload)
+    setSessionId(payload.session_id)
+    localStorage.setItem(STORAGE_SESSION, payload.session_id)
+  }
+
   return {
     busy,
     history,
@@ -140,6 +148,7 @@ export function useQueueSession({ setError, setNotice, user }: FeedbackHandlers)
     sessionId,
     sessionPayload,
     setSessionPayload,
+    adoptSession,
     cancelMeasurement,
     clearSession,
     finishMeasurement,

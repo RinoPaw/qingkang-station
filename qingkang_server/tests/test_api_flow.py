@@ -42,6 +42,25 @@ def main():
         client.post("/api/users/login", json={"nickname": user_b_name})
     )["user"]
 
+    tongue_first_user = assert_status(
+        client.post("/api/users/login", json={"nickname": f"TongueFirst-{suffix}"})
+    )["user"]
+    tongue_first = assert_status(
+        client.post(
+            "/api/tongue-image",
+            data={"user_id": tongue_first_user["user_id"]},
+            files={"file": ("tongue-first.jpg", BytesIO(b"fake image bytes"), "image/jpeg")},
+        )
+    )
+    assert tongue_first["session_id"].startswith("sess_")
+    assert tongue_first["session"]["status"] == "FINISHED"
+    assert tongue_first["heart"] is None
+    assert tongue_first["tongue"]["image_path"].startswith("uploads/")
+    tongue_first_history = assert_status(
+        client.get(f"/api/history?user_id={tongue_first_user['user_id']}")
+    )
+    assert tongue_first_history["items"], "tongue-first upload should create history"
+
     first = assert_status(
         client.post(
             "/api/queue/join",

@@ -20,7 +20,7 @@ import { SidebarNavigation } from './SidebarNavigation'
 import type { AppPage } from './SidebarNavigation'
 import { uploadTongueImage } from '../lib/api'
 import { formatDemoDateTime } from '../lib/demoDates'
-import type { User } from '../types/index'
+import type { SessionPayload, User } from '../types/index'
 
 type TongueUploadState = 'EMPTY' | 'SELECTED' | 'UPLOADING' | 'CHECKING' | 'RECORDED' | 'QUALITY_LOW' | 'FAILED'
 
@@ -28,7 +28,7 @@ type TongueUploadPageProps = {
   currentSessionId: string
   debugPanel: ReactNode
   user: User | null
-  onUploadComplete: () => Promise<void>
+  onUploadComplete: (payload: SessionPayload) => Promise<void>
   onLogout: () => void
   onNavigate: (page: AppPage) => void
 }
@@ -90,9 +90,9 @@ export function TongueUploadPage({
       await wait(520)
       setUploadState('CHECKING')
 
-      if (user && currentSessionId) {
-        await uploadTongueImage(currentSessionId, user.user_id, selectedFile)
-        await onUploadComplete()
+      if (user) {
+        const payload = await uploadTongueImage(currentSessionId, user.user_id, selectedFile)
+        await onUploadComplete(payload)
       } else {
         await wait(600)
       }

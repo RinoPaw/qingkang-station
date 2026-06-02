@@ -7,6 +7,7 @@ import {
   HeartPulse,
   Leaf,
   LineChart,
+  Loader2,
   Moon,
   ScanLine,
   ShieldCheck,
@@ -25,7 +26,9 @@ type ObservationCardPageProps = {
   currentPayload: SessionPayload | null
   debugPanel: ReactNode
   history: HistoryResponse['items']
+  reportState: 'idle' | 'generating' | 'ready'
   user: User | null
+  onGenerateReport: () => void
   onLogout: () => void
   onNavigate: (page: AppPage) => void
 }
@@ -41,17 +44,30 @@ export function ObservationCardPage({
   currentPayload,
   debugPanel,
   history,
+  reportState,
   user,
+  onGenerateReport,
   onLogout,
   onNavigate,
 }: ObservationCardPageProps) {
   const latestBpm = bpm || latestHeartFromHistory(history) || 82
   const hasHeart = Boolean(bpm || currentPayload?.heart || history.some((item) => item.heart?.bpm))
   const hasTongue = Boolean(currentPayload?.tongue || history.some((item) => item.tongue))
+  const hasAnyRecord = hasHeart || hasTongue
+  const reportReady = reportState === 'ready'
+  const reportGenerating = reportState === 'generating'
   const metrics = buildMetrics(latestBpm, hasHeart, hasTongue)
   const trend = buildTrend(history)
-  const observationScore = hasHeart && hasTongue ? 86 : hasHeart || hasTongue ? 72 : 0
-  const readyText = hasHeart && hasTongue ? '本次记录已汇总' : hasHeart || hasTongue ? '已有部分记录' : '等待记录素材'
+  const observationScore = reportReady ? (hasHeart && hasTongue ? 86 : 72) : 0
+  const readyText = reportGenerating
+    ? '正在生成观察卡'
+    : reportReady
+      ? hasHeart && hasTongue
+        ? '本次记录已汇总'
+        : '单项观察卡已生成'
+      : hasAnyRecord
+        ? '记录素材待生成'
+        : '等待记录素材'
 
   return (
     <main className="home-shell observation-page-shell">
@@ -84,32 +100,44 @@ export function ObservationCardPage({
             <div className="observation-main-head">
               <div>
                 <p>本次状态观察</p>
-                <h2>{hasHeart || hasTongue ? '双模态记录已形成' : '先补充一次记录'}</h2>
+                <h2>{mainTitle(reportState, hasHeart, hasTongue)}</h2>
               </div>
-              <span>仅作自我观察</span>
+              <span>{reportGenerating ? '生成中' : reportReady ? '仅作自我观察' : '等待生成'}</span>
             </div>
 
             <div className="observation-hero-grid">
-              <div className={`observation-score-ring ${observationScore ? '' : 'is-empty'}`}>
+              <div className={`observation-score-ring ${observationScore ? '' : 'is-empty'} ${reportGenerating ? 'is-generating' : ''}`}>
                 <strong>{observationScore || '--'}</strong>
                 <span>观察指数</span>
-                <small>{hasHeart && hasTongue ? '资料较完整' : hasHeart || hasTongue ? '继续补充' : '待生成'}</small>
+                <small>{scoreCaption(reportState, hasHeart, hasTongue)}</small>
               </div>
 
               <div className="observation-summary-copy">
-                <strong>{summaryCopy(hasHeart, hasTongue)}</strong>
+                <strong>{summaryCopy(reportState, hasHeart, hasTongue)}</strong>
                 <p>
-                  系统会优先查看本次心率记录、舌象图片质量和最近趋势，再生成茶息、呼吸放松与作息提醒。
+                  {reportReady
+                    ? '系统会优先查看本次心率记录、舌象图片质量和最近趋势，再生成茶息、呼吸放松与作息提醒。'
+                    : '心率记录和舌象图片可按任意顺序补充；两项都齐时会自动生成，只有一项时可手动生成单项观察卡。'}
                 </p>
                 <div className="observation-action-row">
-                  <button onClick={() => onNavigate('heart')} type="button">
-                    <HeartPulse size={18} />
-                    补充心率
-                  </button>
-                  <button className="is-light" onClick={() => onNavigate('tongue')} type="button">
-                    <ScanLine size={18} />
-                    上传舌象
-                  </button>
+                  {!reportReady && hasAnyRecord && (
+                    <button disabled={reportGenerating} onClick={onGenerateReport} type="button">
+                      {reportGenerating ? <Loader2 size={18} /> : <Sparkles size={18} />}
+                      {reportGenerating ? '生成中...' : '生成观察卡'}
+                    </button>
+                  )}
+                  {(!hasHeart || reportReady) && (
+                    <button className={reportReady ? '' : 'is-light'} onClick={() => onNavigate('heart')} type="button">
+                      <HeartPulse size={18} />
+                      {hasHeart ? '查看心率' : '补充心率'}
+                    </button>
+                  )}
+                  {(!hasTongue || reportReady) && (
+                    <button className="is-light" onClick={() => onNavigate('tongue')} type="button">
+                      <ScanLine size={18} />
+                      {hasTongue ? '查看舌象' : '上传舌象'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -126,8 +154,8 @@ export function ObservationCardPage({
           </section>
 
           <aside className="observation-side-stack">
-            <ObservationAdviceCard />
-            <ObservationDataCard hasHeart={hasHeart} hasTongue={hasTongue} latestBpm={latestBpm} />
+            <ObservationAdviceCard reportState={reportState} />
+            <ObservationDataCard hasHeart={hasHeart} hasTongue={hasTongue} latestBpm={latestBpm} reportState={reportState} />
           </aside>
         </section>
 
@@ -144,7 +172,27 @@ export function ObservationCardPage({
   )
 }
 
-function ObservationAdviceCard() {
+function ObservationAdviceCard({ reportState }: { reportState: 'idle' | 'generating' | 'ready' }) {
+  if (reportState !== 'ready') {
+    return (
+      <section className="observation-side-card">
+        <h2>
+          <Sparkles size={20} />
+          观察卡状态
+        </h2>
+        <div className="observation-advice-list">
+          <article className="observation-advice-item">
+            <span>{reportState === 'generating' ? <Loader2 size={22} /> : <ClipboardIcon />}</span>
+            <div>
+              <strong>{reportState === 'generating' ? '正在生成观察卡' : '等待手动生成'}</strong>
+              <p>{reportState === 'generating' ? '小站正在整理本次记录素材，请稍等片刻。' : '已有单项记录时，可以手动生成观察卡；两项都齐时会自动生成。'}</p>
+            </div>
+          </article>
+        </div>
+      </section>
+    )
+  }
+
   const advice = [
     {
       icon: <Coffee size={22} />,
@@ -188,10 +236,12 @@ function ObservationDataCard({
   hasHeart,
   hasTongue,
   latestBpm,
+  reportState,
 }: {
   hasHeart: boolean
   hasTongue: boolean
   latestBpm: number
+  reportState: 'idle' | 'generating' | 'ready'
 }) {
   return (
     <section className="observation-side-card observation-data-card">
@@ -213,11 +263,15 @@ function ObservationDataCard({
         <span className={hasHeart || hasTongue ? 'is-done' : ''}>
           <CalendarClock size={18} />
         </span>
-        <p>趋势档案</p>
-        <strong>{hasHeart || hasTongue ? '已更新' : '等待生成'}</strong>
+        <p>观察卡</p>
+        <strong>{reportState === 'ready' ? '已生成' : reportState === 'generating' ? '生成中' : '待生成'}</strong>
       </div>
     </section>
   )
+}
+
+function ClipboardIcon() {
+  return <BookOpenCheck size={22} />
 }
 
 function ObservationTrendCard({ trend }: { trend: Array<{ date: string; bpm: number }> }) {
@@ -300,11 +354,31 @@ function buildMetrics(latestBpm: number, hasHeart: boolean, hasTongue: boolean):
   ]
 }
 
-function summaryCopy(hasHeart: boolean, hasTongue: boolean) {
+function mainTitle(reportState: 'idle' | 'generating' | 'ready', hasHeart: boolean, hasTongue: boolean) {
+  if (reportState === 'generating') return '正在生成观察卡'
+  if (reportState === 'ready') return hasHeart && hasTongue ? '双模态观察卡已生成' : '单项观察卡已生成'
+  if (hasHeart || hasTongue) return '记录素材已就绪'
+  return '先补充一次记录'
+}
+
+function scoreCaption(reportState: 'idle' | 'generating' | 'ready', hasHeart: boolean, hasTongue: boolean) {
+  if (reportState === 'generating') return '生成中'
+  if (reportState !== 'ready') return hasHeart || hasTongue ? '待生成' : '等待记录'
+  return hasHeart && hasTongue ? '资料较完整' : '单项参考'
+}
+
+function summaryCopy(reportState: 'idle' | 'generating' | 'ready', hasHeart: boolean, hasTongue: boolean) {
+  if (reportState === 'generating') return '正在整理本次记录素材，请稍等片刻。'
+  if (reportState !== 'ready') {
+    if (hasHeart && hasTongue) return '心率与舌象图片已齐，观察卡会自动生成。'
+    if (hasHeart) return '已有心率记录，可手动生成观察卡，也可继续补充舌象图片。'
+    if (hasTongue) return '已有舌象图片，可手动生成观察卡，也可继续补充心率记录。'
+    return '先完成心率记录或上传舌象图片，再生成本次观察卡。'
+  }
   if (hasHeart && hasTongue) return '本次心率与舌象图片已汇总，可查看轻量观察建议。'
-  if (hasHeart) return '已有心率记录，补充舌象图片后观察卡会更完整。'
-  if (hasTongue) return '已有舌象图片，补充心率记录后可形成双模态参考。'
-  return '先完成心率记录或上传舌象图片，小站会生成你的本次观察卡。'
+  if (hasHeart) return '已基于心率记录生成观察卡，补充舌象图片后内容会更完整。'
+  if (hasTongue) return '已基于舌象图片生成观察卡，补充心率记录后可形成双模态参考。'
+  return '先完成心率记录或上传舌象图片，再生成本次观察卡。'
 }
 
 function latestHeartFromHistory(history: HistoryResponse['items']) {
