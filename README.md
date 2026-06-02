@@ -5,7 +5,7 @@
 - ESP32-S3 + PulseSensor 心率模块；
 - FastAPI + SQLite 后端；
 - React + TypeScript + Tailwind CSS 前端终端；
-- 多用户排队与硬件占用机制；
+- 多用户排队与设备分配机制；
 - 舌象图片上传和 AI 视觉分析占位；
 - 非诊断性综合观察卡和历史趋势展示。
 
@@ -50,6 +50,8 @@ http://127.0.0.1:2071/
 ```
 
 ## ESP32 网络接口
+
+烧录前可复制 `sketch_may27a/config.example.h` 为 `sketch_may27a/config.h`，填写 WiFi 与后端地址。`config.h` 不会被提交。
 
 硬件默认空闲，定时轮询：
 

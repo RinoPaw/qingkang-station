@@ -4,25 +4,26 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 
+#if __has_include("config.h")
+#include "config.h"
+#else
+#define OLED_SDA 5
+#define OLED_SCL 4
+#define OLED_ADDR 0x3C
+#define HEART_PIN 7
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+String SERVER_BASE_URL = "http://192.168.1.100:2070";
+const char* DEVICE_ID = "esp32_s3_001";
+#endif
+
 // =====================
 // 引脚配置
 // =====================
 
-#define OLED_SDA 5
-#define OLED_SCL 4
-#define OLED_ADDR 0x3C
-
-#define HEART_PIN 7
-
 // =====================
 // 网络与服务器配置
 // =====================
-
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-
-String SERVER_BASE_URL = "http://192.168.1.100:2070";
-const char* DEVICE_ID = "esp32_s3_001";
 
 const unsigned long SERVER_POLL_INTERVAL_MS = 1000;
 const unsigned long HEART_UPLOAD_INTERVAL_MS = 1000;
@@ -59,7 +60,7 @@ const float THRESHOLD_RATIO = 0.62;
 // 刚按上去后等待稳定
 const unsigned long STABLE_TIME_MS = 3000;
 
-// 连续 raw 异常多久后认为手指移开
+// 连续 raw 超出有效范围多久后认为手指移开
 const unsigned long INVALID_RAW_TIMEOUT_MS = 300;
 
 // 心跳间隔范围
@@ -583,7 +584,7 @@ void loop() {
 
   bool rawValid = (raw > RAW_MIN_VALID && raw < RAW_MAX_VALID);
 
-  // raw=0 或 raw 异常，可能是手指移开/扫过/接触不良
+  // raw=0 或 raw 超出有效范围，可能是手指移开/扫过/接触不良
   if (!rawValid) {
     if (invalidRawStartTime == 0) {
       invalidRawStartTime = now;

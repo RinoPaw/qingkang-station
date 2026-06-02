@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DEVICE_ID, pollDevice } from '../lib/api'
+import { DEVICE_ID, fetchDeviceStatus } from '../lib/api'
 import type { DevicePollResponse } from '../types/index'
 
 export function useDeviceStatus() {
@@ -10,7 +10,7 @@ export function useDeviceStatus() {
 
     async function loop() {
       try {
-        const response = await pollDevice()
+        const response = await fetchDeviceStatus()
         if (!cancelled) setDevicePoll(response)
       } catch {
         if (!cancelled) {
@@ -22,7 +22,7 @@ export function useDeviceStatus() {
             active_session: null,
             heart_upload: '/api/heart-rate',
             poll_interval_ms: 1000,
-            message: 'Device API unavailable',
+            message: '暂时无法读取设备状态',
           })
         }
       }

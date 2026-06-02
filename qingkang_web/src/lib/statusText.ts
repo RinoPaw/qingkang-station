@@ -48,11 +48,11 @@ export function getStage(
 ): StageKey {
   const status = payload?.session?.status
   if (!user) return 'identity'
-  if (device?.state === 'DISCONNECTED') return 'disconnected'
   if (payload?.tongue && payload.combined_observation?.summary?.trim()) return 'observation'
   if (status === 'FINISHED') return 'tongue'
   if (!payload?.session || status === 'TIMEOUT' || status === 'CANCELLED') return 'queue'
   if (status === 'QUEUED') return 'waiting'
+  if (device?.state === 'DISCONNECTED') return 'disconnected'
   if (currentStatus === 'HOLD_STILL' || currentStatus === 'MEASURING' || currentStatus === 'ADJUST_FINGER') {
     return 'measuring'
   }

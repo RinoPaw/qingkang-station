@@ -11,5 +11,7 @@ qingkang_server/*.log
 qingkang_server/data.db
 qingkang_server/uploads/
 
+qingkang_data_archive/
 .npm-cache/
+sketch_may27a/config.h
 心迹_中美青年创客大赛软硬件结合完整方案.docx

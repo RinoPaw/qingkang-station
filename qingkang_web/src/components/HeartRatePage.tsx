@@ -453,8 +453,8 @@ function HeartTrendCard({
 }
 
 function getHeartPageState(stage: StageKey, currentStatus: string, deviceHumanState: string): HeartPageState {
-  if (deviceHumanState === '设备离线') return 'offline'
   if (stage === 'waiting') return 'queued'
+  if (deviceHumanState === '设备离线') return 'offline'
   if (stage === 'ready') return 'ready'
   if (currentStatus === 'ADJUST_FINGER') return 'unstable'
   if (stage === 'measuring') return 'measuring'

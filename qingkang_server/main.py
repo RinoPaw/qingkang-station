@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 import os
 import re
 import shutil
@@ -220,7 +220,7 @@ def normalize_heart_state(state: Optional[str]) -> str:
     if normalized == "PLACEFINGER":
         normalized = "PLACE_FINGER"
     if normalized not in HEART_STATES:
-        raise HTTPException(status_code=422, detail=f"unsupported heart state: {state}")
+        raise HTTPException(status_code=422, detail="心率设备状态暂不支持，请检查固件上传状态")
     return normalized
 
 
@@ -301,7 +301,7 @@ def close_session(
     device_id: str = DEFAULT_DEVICE_ID,
 ) -> None:
     if status not in SESSION_DONE_STATUSES:
-        raise HTTPException(status_code=422, detail=f"unsupported final session status: {status}")
+        raise HTTPException(status_code=422, detail="本次记录结束状态不支持")
 
     finished_at = now_ts()
     cur = conn.cursor()
@@ -327,12 +327,16 @@ def run_queue_maintenance(conn: sqlite3.Connection, device_id: str = DEFAULT_DEV
     device = ensure_device(conn, device_id)
     timestamp = now_ts()
     cur = conn.cursor()
+    device_online = bool(device["last_seen"]) and timestamp - int(device["last_seen"]) <= DEVICE_OFFLINE_SECONDS
 
     active_session_id = device["current_session_id"]
     if active_session_id:
         active = fetch_session(conn, active_session_id)
         if not active or active["status"] in SESSION_DONE_STATUSES:
             set_device_idle(conn, device_id)
+            active_session_id = None
+        elif not device_online:
+            close_session(conn, active_session_id, "TIMEOUT", device_id)
             active_session_id = None
         elif active["expires_at"] and active["expires_at"] <= timestamp:
             close_session(conn, active_session_id, "TIMEOUT", device_id)
@@ -349,7 +353,7 @@ def run_queue_maintenance(conn: sqlite3.Connection, device_id: str = DEFAULT_DEV
             """
         )
         next_session = cur.fetchone()
-        if next_session:
+        if next_session and device_online:
             expires_at = timestamp + MEASUREMENT_TIMEOUT_SECONDS
             cur.execute(
                 """
@@ -372,7 +376,7 @@ def run_queue_maintenance(conn: sqlite3.Connection, device_id: str = DEFAULT_DEV
             )
         else:
             current_state = "IDLE"
-            if device["last_seen"] and timestamp - int(device["last_seen"]) > DEVICE_OFFLINE_SECONDS:
+            if not device_online:
                 current_state = "DISCONNECTED"
             set_device_idle(conn, device_id, current_state)
 
@@ -387,6 +391,7 @@ def latest_heart(conn: sqlite3.Connection, session_id: str) -> Optional[dict[str
         SELECT bpm, raw, amplitude, state, created_at
         FROM heart_records
         WHERE session_id = ?
+          AND (bpm > 0 OR state IN ('HOLD_STILL', 'MEASURING', 'ADJUST_FINGER'))
         ORDER BY id DESC
         LIMIT 1
         """,
@@ -469,7 +474,7 @@ def make_combined_observation(
     suggestions: list[str] = []
 
     if status == "QUEUED":
-        summary = "你已进入测量队列，请等待硬件空闲。"
+        summary = "你已进入测量队列，请等待公共设备分配。"
     elif status == "READY":
         summary = "轮到你了，可以开始本次轻健康状态记录。"
     elif status == "MEASURING":
@@ -486,12 +491,12 @@ def make_combined_observation(
     if heart:
         suggestions.append(make_heart_suggestion(heart.get("bpm"), heart.get("state") or "READY"))
     else:
-        suggestions.append("暂无心率记录，建议先完成硬件测量。")
+        suggestions.append("暂无心率记录，建议先完成公共设备测量。")
 
     if tongue:
         suggestions.append("舌象图片已保存，后续可接入图像质量分析和舌体区域识别。")
     else:
-        suggestions.append("可上传一张舌象图片，用于形成同一 session 下的观察记录。")
+        suggestions.append("可上传一张舌象图片，用于完善本次观察记录。")
 
     suggestions.append("茶息建议：短暂停下，补充温水，观察身体状态变化。")
     suggestions.append("呼吸建议：尝试 30 秒慢呼吸，让本次记录更稳定。")
@@ -588,6 +593,7 @@ def root():
         "status": "running",
         "docs": "/docs",
         "device_poll": "/api/device/poll?device_id=esp32_s3_001",
+        "device_status": "/api/device/status?device_id=esp32_s3_001",
         "heart_upload": "/api/heart-rate",
     }
 
@@ -679,7 +685,7 @@ def get_session(session_id: str, device_id: str = Query(DEFAULT_DEVICE_ID)):
     payload = get_session_payload(conn, session_id, device_id)
     conn.close()
     if not payload["ok"]:
-        raise HTTPException(status_code=404, detail="session not found")
+        raise HTTPException(status_code=404, detail="没有找到对应记录，请重新开始")
     return payload
 
 
@@ -689,7 +695,7 @@ def finish_session(session_id: str, data: SessionActionRequest = SessionActionRe
     conn = get_conn()
     if not fetch_session(conn, session_id):
         conn.close()
-        raise HTTPException(status_code=404, detail="session not found")
+        raise HTTPException(status_code=404, detail="没有找到对应记录，请重新开始")
     close_session(conn, session_id, "FINISHED", device_id)
     run_queue_maintenance(conn, device_id)
     payload = get_session_payload(conn, session_id, device_id)
@@ -703,7 +709,7 @@ def cancel_session(session_id: str, data: SessionActionRequest = SessionActionRe
     conn = get_conn()
     if not fetch_session(conn, session_id):
         conn.close()
-        raise HTTPException(status_code=404, detail="session not found")
+        raise HTTPException(status_code=404, detail="没有找到对应记录，请重新开始")
     close_session(conn, session_id, "CANCELLED", device_id)
     run_queue_maintenance(conn, device_id)
     payload = get_session_payload(conn, session_id, device_id)
@@ -711,21 +717,12 @@ def cancel_session(session_id: str, data: SessionActionRequest = SessionActionRe
     return {"ok": True, "message": "session cancelled", **payload}
 
 
-@app.get("/api/device/poll")
-def poll_device(device_id: str = Query(DEFAULT_DEVICE_ID)):
-    device_id = sanitize_identifier(device_id, DEFAULT_DEVICE_ID)
-    timestamp = now_ts()
-    conn = get_conn()
-    ensure_device(conn, device_id)
-    conn.execute(
-        """
-        UPDATE device_status
-        SET last_seen = ?
-        WHERE device_id = ?
-        """,
-        (timestamp, device_id),
-    )
-    run_queue_maintenance(conn, device_id)
+def build_device_status_payload(
+    conn: sqlite3.Connection,
+    device_id: str,
+    timestamp: Optional[int] = None,
+) -> Dict[str, Any]:
+    timestamp = timestamp or now_ts()
     device = row_to_dict(ensure_device(conn, device_id))
 
     active_payload = None
@@ -743,7 +740,6 @@ def poll_device(device_id: str = Query(DEFAULT_DEVICE_ID)):
 
     state = device["state"] if device else "IDLE"
     message = "Waiting / Idle" if not active_payload else f"Active session: {active_payload['nickname']}"
-    conn.close()
     return {
         "ok": True,
         "server_time": timestamp,
@@ -756,17 +752,48 @@ def poll_device(device_id: str = Query(DEFAULT_DEVICE_ID)):
     }
 
 
+@app.get("/api/device/poll")
+def poll_device(device_id: str = Query(DEFAULT_DEVICE_ID)):
+    device_id = sanitize_identifier(device_id, DEFAULT_DEVICE_ID)
+    timestamp = now_ts()
+    conn = get_conn()
+    ensure_device(conn, device_id)
+    conn.execute(
+        """
+        UPDATE device_status
+        SET last_seen = ?
+        WHERE device_id = ?
+        """,
+        (timestamp, device_id),
+    )
+    run_queue_maintenance(conn, device_id)
+    payload = build_device_status_payload(conn, device_id, timestamp)
+    conn.close()
+    return payload
+
+
+@app.get("/api/device/status")
+def get_device_status(device_id: str = Query(DEFAULT_DEVICE_ID)):
+    device_id = sanitize_identifier(device_id, DEFAULT_DEVICE_ID)
+    conn = get_conn()
+    ensure_device(conn, device_id)
+    run_queue_maintenance(conn, device_id)
+    payload = build_device_status_payload(conn, device_id)
+    conn.close()
+    return payload
+
+
 @app.post("/api/device/release")
 def release_device(data: DeviceReleaseRequest):
     device_id = sanitize_identifier(data.device_id, DEFAULT_DEVICE_ID)
     status = data.status.strip().upper()
     if status not in SESSION_DONE_STATUSES:
-        raise HTTPException(status_code=422, detail="status must be FINISHED, TIMEOUT, or CANCELLED")
+        raise HTTPException(status_code=422, detail="本次记录结束状态不支持")
 
     conn = get_conn()
     if not fetch_session(conn, data.session_id):
         conn.close()
-        raise HTTPException(status_code=404, detail="session not found")
+        raise HTTPException(status_code=404, detail="没有找到对应记录，请重新开始")
     close_session(conn, data.session_id, status, device_id)
     run_queue_maintenance(conn, device_id)
     payload = get_session_payload(conn, data.session_id, device_id)
@@ -786,15 +813,15 @@ def upload_heart_rate(data: HeartRateData):
     current_session_id = device["current_session_id"]
     if not current_session_id:
         conn.close()
-        raise HTTPException(status_code=409, detail="heart module is idle; no active session")
+        raise HTTPException(status_code=409, detail="公共设备暂未分配给本次记录，请先加入队列")
     if current_session_id != data.session_id:
         conn.close()
-        raise HTTPException(status_code=409, detail="session is not allowed to use the heart module")
+        raise HTTPException(status_code=409, detail="当前还没有轮到这位同学，请继续等待")
 
     session = fetch_session(conn, data.session_id)
     if not session or session["status"] in SESSION_DONE_STATUSES:
         conn.close()
-        raise HTTPException(status_code=409, detail="session is not active")
+        raise HTTPException(status_code=409, detail="本次记录已结束，请重新加入队列")
 
     if state in {"FINISHED", "TIMEOUT", "CANCELLED"}:
         final_status = "FINISHED" if state == "FINISHED" else state
@@ -820,23 +847,25 @@ def upload_heart_rate(data: HeartRateData):
             (device_state, device_id),
         )
 
-    conn.execute(
-        """
-        INSERT INTO heart_records
-        (session_id, user_id, device_id, bpm, raw, amplitude, state, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            data.session_id,
-            data.user_id or session["user_id"],
-            device_id,
-            data.bpm,
-            data.raw,
-            data.amplitude,
-            state,
-            timestamp,
-        ),
-    )
+    should_record_heart = state not in {"READY", "PLACE_FINGER"} or bool(data.bpm and data.bpm > 0)
+    if should_record_heart:
+        conn.execute(
+            """
+            INSERT INTO heart_records
+            (session_id, user_id, device_id, bpm, raw, amplitude, state, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data.session_id,
+                data.user_id or session["user_id"],
+                device_id,
+                data.bpm,
+                data.raw,
+                data.amplitude,
+                state,
+                timestamp,
+            ),
+        )
 
     conn.commit()
     run_queue_maintenance(conn, device_id)
@@ -844,14 +873,8 @@ def upload_heart_rate(data: HeartRateData):
     conn.close()
     return {
         "accepted": True,
-        "message": "heart rate recorded",
-        "heart": {
-            "bpm": data.bpm,
-            "raw": data.raw,
-            "amplitude": data.amplitude,
-            "state": state,
-            "suggestion": make_heart_suggestion(data.bpm, state),
-        },
+        "recorded": should_record_heart,
+        "message": "心率记录已接收" if should_record_heart else "心率状态已接收",
         **payload,
     }
 

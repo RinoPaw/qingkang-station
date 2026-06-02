@@ -3,7 +3,7 @@
 青康小站是面向大学生/年轻人的轻健康状态观察系统。当前软件端包含：
 
 - FastAPI + SQLite 后端；
-- 多用户身份、排队、硬件占用和 session 绑定；
+- 多用户身份、排队、设备分配和本次记录绑定；
 - ESP32-S3 心率模块轮询与上传接口；
 - 舌象图片上传和 AI 视觉占位结果；
 - 非诊断性综合观察卡和历史趋势接口。
@@ -154,7 +154,7 @@ DISCONNECTED
 
 ### POST /api/queue/join
 
-加入测量队列。若当前没有人使用硬件，队首会自动成为 `active_session`。
+加入测量队列。设备在线轮询后，服务器会把队首分配为当前测量用户。
 
 ```json
 {
@@ -171,14 +171,14 @@ DISCONNECTED
   "ok": true,
   "session_id": "sess_xxx",
   "session": {
-    "status": "READY",
-    "queue_position": 0,
-    "expires_at": 1780000120
+    "status": "QUEUED",
+    "queue_position": 1,
+    "expires_at": null
   },
   "queue": {
-    "position": 0,
+    "position": 1,
     "people_ahead": 0,
-    "is_active": true
+    "is_active": false
   }
 }
 ```
@@ -203,13 +203,15 @@ DISCONNECTED
 
 ## ESP32-S3 心率模块接口
 
-硬件默认不测量、不上传。它只做一件事：定时轮询服务器，看有没有分配给自己的 `active_session`。
+硬件默认不测量、不上传。它只做一件事：定时轮询服务器，看有没有分配给自己的当前记录。
 
 ### 1. 设备轮询
 
 ```http
 GET /api/device/poll?device_id=esp32_s3_001
 ```
+
+该接口只给 ESP32 使用，会刷新设备在线心跳。网页端只读取设备状态，不应调用该接口。
 
 无用户时：
 
@@ -249,7 +251,15 @@ ESP32 行为：
 - `active_session != null`：OLED 显示用户昵称或 `session_id`，开始采样。
 - 上传心率时必须携带服务器返回的 `session_id`。
 
-### 2. 心率上传
+### 2. 网页读取设备状态
+
+```http
+GET /api/device/status?device_id=esp32_s3_001
+```
+
+该接口用于前端展示设备使用情况，不会刷新 `last_seen`。如果 ESP32 停止轮询超过一段时间，服务器会把设备视为离线，并让正在进行的测量记录超时，避免网页把设备“伪装在线”。
+
+### 3. 心率上传
 
 ```http
 POST /api/heart-rate
@@ -282,11 +292,12 @@ CANCELLED
 服务端校验：
 
 - 没有 `active_session` 时上传会返回 `409`；
-- 上传的 `session_id` 不是当前硬件占用者时返回 `409`；
+- 上传的 `session_id` 不是当前设备分配对象时返回 `409`；
 - 只有当前 active session 可以写入心率记录；
+- `READY` / `PLACE_FINGER` 且 `bpm <= 0` 时只更新状态，不写入心率记录；
 - `FINISHED` / `TIMEOUT` / `CANCELLED` 会释放当前硬件。
 
-### 3. 设备主动释放
+### 4. 设备主动释放
 
 ```http
 POST /api/device/release
@@ -357,8 +368,10 @@ uv run python tests/test_api_flow.py
 测试覆盖：
 
 - 用户创建；
-- 首位用户加入队列后自动获得硬件；
+- 设备离线时用户只进入队列，ESP32 轮询后才获得测量权；
 - 第二位用户进入等待队列；
+- 网页读取设备状态不会刷新 ESP32 在线心跳；
+- `READY` 零心率不会写入心率记录；
 - 非 active session 不能上传心率；
 - active session 可以上传心率；
 - 舌象图片上传并绑定同一 `session_id`；
